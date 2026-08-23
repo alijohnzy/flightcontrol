@@ -1,7 +1,7 @@
 ## Interface: 120100
 ## Title: FlightControl
 ## Notes: While flying, your movement cluster becomes pitch + turn. Reverts on landing.
-## Author: gageracer
+## Author: AliJohn
 ## Version: 1.0.4
 ## SavedVariables: FlightControlDB
 ## IconTexture: Interface\AddOns\FlightControl\logo
