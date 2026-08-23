@@ -1,7 +1,8 @@
 # FlightControl
 
 **While you're flying, your movement keys become flight controls. When you land, they go
-back.**
+back.** Install it and it works straight away — type **`/fcon ui`** to see what it worked out
+from your own keybindings, and exactly what will change in the air.
 
 ![The FlightControl options window: the keys it worked out from the player's own bindings, and a preview of exactly what changes in the air](https://raw.githubusercontent.com/alijohnzy/flightcontrol/main/assets/screenshot.png)
 
