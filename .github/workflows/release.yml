@@ -79,3 +79,59 @@ jobs:
             --notes-file release-notes.md \
             "FlightControl-${VERSION}.zip" \
           || gh release upload "v${VERSION}" "FlightControl-${VERSION}.zip" --clobber
+
+      # Wago's own upload API is a plain multipart POST, so there is no need for
+      # the BigWigs packager here -- which also means no .pkgmeta and no guessing
+      # at how it would handle the addon living in a subfolder.
+      # Skipped cleanly when the token or the project id is absent.
+      - name: Upload to Wago Addons
+        env:
+          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+
+          WAGO_ID=$(sed -n 's/^## X-Wago-ID:[[:space:]]*//p' FlightControl/FlightControl.toc | tr -d '\r')
+          if [ -z "${WAGO_API_TOKEN:-}" ]; then
+            echo "::notice::WAGO_API_TOKEN not set — skipping Wago upload."
+            exit 0
+          fi
+          if [ -z "$WAGO_ID" ]; then
+            echo "::notice::No '## X-Wago-ID' in the TOC — skipping Wago upload."
+            exit 0
+          fi
+
+          # Wago wants a patch string like 12.1.0; the TOC carries 120100.
+          IFACE=$(sed -n 's/^## Interface:[[:space:]]*//p' FlightControl/FlightControl.toc \
+                  | tr -d '\r' | cut -d, -f1 | tr -d '[:space:]')
+          PADDED=$(printf '%06d' "$IFACE")
+          PATCH="$((10#${PADDED:0:2})).$((10#${PADDED:2:2})).$((10#${PADDED:4:2}))"
+
+          case "$VERSION" in
+            *-alpha*) STABILITY=alpha ;;
+            *-beta*)  STABILITY=beta ;;
+            *)        STABILITY=stable ;;
+          esac
+
+          METADATA=$(jq -nc \
+            --arg label "$VERSION" \
+            --arg stability "$STABILITY" \
+            --arg patch "$PATCH" \
+            --rawfile changelog release-notes.md \
+            '{label: $label, stability: $stability, changelog: $changelog, supported_retail_patch: $patch}')
+
+          echo "Uploading $VERSION to Wago project $WAGO_ID (retail $PATCH, $STABILITY)"
+
+          HTTP=$(curl -sS -w '%{http_code}' -o wago-response.json -X POST \
+            -H "authorization: Bearer $WAGO_API_TOKEN" \
+            -H "accept: application/json" \
+            -F "metadata=$METADATA" \
+            -F "file=@FlightControl-${VERSION}.zip" \
+            "https://addons.wago.io/api/projects/${WAGO_ID}/version")
+
+          cat wago-response.json; echo
+          if [ "$HTTP" -ge 300 ]; then
+            echo "::error::Wago upload failed with HTTP $HTTP"
+            exit 1
+          fi
+          echo "Wago upload OK ($HTTP)"
