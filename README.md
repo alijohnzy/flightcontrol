@@ -11,9 +11,8 @@ pitch on `SHIFT-W` / `SHIFT-S` — and then hit this: holding `SHIFT` to pitch c
 
 ## What it does
 
-While you're airborne, the bare movement cluster *is* the flight cluster. Every change is a
-straight **exchange** — whatever gets displaced moves onto the key that used to hold its
-replacement, so nothing is lost while you fly:
+While you're airborne, your movement cluster becomes the flight cluster. Land, and it all
+goes back:
 
 | key | on the ground | while flying |
 | --- | --- | --- |
@@ -21,26 +20,26 @@ replacement, so nothing is lost while you fly:
 | `S` | Move Backward | **Pitch Down** |
 | `A` | Strafe Left | **Turn Left** |
 | `D` | Strafe Right | **Turn Right** |
-| `SHIFT-W` | Pitch Up | **Move Forward** |
-| `SHIFT-S` | Pitch Down | **Move Backward** |
-| `SHIFT-A` | Turn Left | **Strafe Left** |
-| `SHIFT-D` | Turn Right | **Strafe Right** |
 
-Land, and every one of them goes straight back.
+## What happens to the command that was there
 
-The top half is always your movement cluster. The bottom half follows wherever *you* keep
-pitch and turn — if your turn keys are the arrow keys, then strafe moves to the arrow keys
-while you fly rather than to `SHIFT-A` / `SHIFT-D`.
+That depends on your own keybindings, and there are only three cases. Taking `A` as the
+example — the same applies to every key in the cluster:
 
-**Keys that already do the right thing are skipped**, so if you already have Turn on `A`/`D`,
-only the pitch rows change.
+| your setup | while flying |
+| --- | --- |
+| `A` **already does Turn Left** | nothing happens. The key is skipped entirely. |
+| **Turn Left is on some other key** | a straight swap: `A` does Turn Left, and that other key does Strafe Left. Nothing is lost. |
+| **Turn Left isn't bound anywhere** | `A` does Turn Left, and Strafe Left has no key until you land. |
 
-**If something has nowhere to go it simply has no key while you fly.** With no turn keys
-bound anywhere, `A`/`D` still become Turn — and Strafe has nothing to swap with, so it goes
-unbound until you land. No key is ever invented, and nothing you didn't ask for is taken.
+In the second case, the command you displaced goes to whichever key was holding the one that
+replaced it — so if your Turn Left sits on `SHIFT-A`, that's where Strafe Left goes; if it
+sits on your left arrow key, it goes there instead.
 
-Run `/fcon layout` to see your own version of this table, including anything that would be
-left without a key.
+In the third case nothing is invented and no other binding is taken to make room. You get
+the flight command you need, and the one it displaced comes back the moment you land.
+
+Run `/fcon layout` to see which of these applies to you.
 
 ## It fits your keybindings
 
