@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+Metadata only. The addon itself is unchanged from 1.0.2.
+
+- Author and copyright are now AliJohn, matching the name the project is published under.
+
 ## 1.0.4
 
 Description only. The addon itself is unchanged from 1.0.2.
