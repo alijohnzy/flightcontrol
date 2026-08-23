@@ -1,7 +1,7 @@
 # FlightControl
 
 **While you're flying, your movement keys become flight controls. When you land, they go
-back.** Install it and it works straight away — type **`/fcon ui`** to see what it worked out
+back.** Install it and it works straight away. Type **`/fcon ui`** to see what it worked out
 from your own keybindings, and exactly what will change in the air.
 
 ![The FlightControl options window: the keys it worked out from the player's own bindings, and a preview of exactly what changes in the air](https://raw.githubusercontent.com/alijohnzy/flightcontrol/main/assets/screenshot.png)
@@ -9,7 +9,7 @@ from your own keybindings, and exactly what will change in the air.
 ## The problem it solves
 
 Skyriding needs pitch, and your fingers are already on the movement keys. So most people put
-pitch on `SHIFT-W` / `SHIFT-S` — and then hit this: holding `SHIFT` to pitch changes what
+pitch on `SHIFT-W` / `SHIFT-S`, and then hit this: holding `SHIFT` to pitch changes what
 `A` and `D` do, because `SHIFT-A` is bound to turn. You can't pitch and steer at once.
 
 ## What it does
@@ -27,7 +27,7 @@ goes back:
 ## What happens to the command that was there
 
 That depends on your own keybindings, and there are only three cases. Taking `A` as the
-example — the same applies to every key in the cluster:
+example. The same applies to every key in the cluster:
 
 | your setup | while flying |
 | --- | --- |
@@ -36,8 +36,8 @@ example — the same applies to every key in the cluster:
 | **Turn Left isn't bound anywhere** | `A` does Turn Left, and Strafe Left has no key until you land. |
 
 In the second case, the command you displaced goes to whichever key was holding the one that
-replaced it — so if your Turn Left sits on `SHIFT-A`, that's where Strafe Left goes; if it
-sits on your left arrow key, it goes there instead.
+replaced it. If your Turn Left sits on `SHIFT-A`, that's where Strafe Left goes; if it sits
+on your left arrow key, it goes there instead.
 
 In the third case nothing is invented and no other binding is taken to make room. You get
 the flight command you need, and the one it displaced comes back the moment you land.
@@ -47,19 +47,19 @@ Run `/fcon layout` to see which of these applies to you.
 ## It fits your keybindings
 
 There's no assumption that you use `WASD`. FlightControl reads your actual bindings and
-works out where your movement cluster is — `ESDF` and AZERTY `ZQSD` are found automatically.
+works out where your movement cluster is. `ESDF` and AZERTY `ZQSD` are found automatically.
 
 ## Getting started
 
 Install, log in, and it works. Nothing to configure.
 
 To see what it worked out for you, type **`/fcon ui`**. It shows which keys it picked, what
-each one currently does on the ground, and exactly what will change while you fly — before
-anything happens.
+each one currently does on the ground, and exactly what will change while you fly, all
+before anything happens.
 
 In that window you can also:
 
-- **Assign the keys yourself** — untick *"Work it out from my keybindings"*.
+- **Assign the keys yourself** by unticking *"Work it out from my keybindings"*.
 - **Invert pitch** so the forward key dives instead of climbing.
 
 ## Commands
@@ -81,7 +81,7 @@ take-off and `W` keeps moving you forward; release it and it becomes Pitch Up. S
 once more to start pitching.
 
 This is deliberate. Swapping a key mid-press would leave the old command running with
-nothing able to stop it — you'd take off holding `W` and still be running after you landed.
+nothing able to stop it: you'd take off holding `W` and still be running after you landed.
 Waiting for the release is the only way to avoid that, because the WoW API won't let addons
 cancel a movement command.
 
