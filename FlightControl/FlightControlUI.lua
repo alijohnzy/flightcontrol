@@ -22,45 +22,70 @@ local listeningRow
 -- Key capture
 --------------------------------------------------------------------------------
 
-local function StopListening()
-	if not listeningRow then return end
-	local row = listeningRow
-	listeningRow = nil
+local listenTimer
 
-	row.KeyButton:EnableKeyboard(false)
-	row.KeyButton:SetPropagateKeyboardInput(true)
-	FlightControlUI:Refresh()
+local function StopListening()
+    if not listeningRow then return end
+    local row = listeningRow
+    listeningRow = nil
+    listenTimer = nil
+
+    -- Both, always. While either is left set the button eats every keypress in
+    -- the game, which is how trying to walk with the window open ended up
+    -- rewriting the layout one movement key at a time.
+    row.KeyButton:SetPropagateKeyboardInput(true)
+    row.KeyButton:EnableKeyboard(false)
+    FlightControlUI:Refresh()
 end
 
 local function StartListening(row)
-	StopListening()
-	listeningRow = row
+    StopListening()
+    listeningRow = row
 
-	row.KeyButton:SetText("press a key...")
-	row.KeyButton:EnableKeyboard(true)
-	row.KeyButton:SetPropagateKeyboardInput(false)
+    row.KeyButton:SetText("press a key... (Esc cancels)")
+    row.KeyButton:EnableKeyboard(true)
+    row.KeyButton:SetPropagateKeyboardInput(false)
+
+    -- Hard backstop. Capture is the only state in which this addon holds the
+    -- keyboard, so it must not be possible to get stuck in it.
+    local token = {}
+    listenTimer = token
+    C_Timer.After(6, function()
+        if listeningRow == row and listenTimer == token then
+            FC.Print("key capture timed out -- keyboard released")
+            StopListening()
+        end
+    end)
 end
 
 local function OnKeyCaptured(row, rawKey)
-	local key = GetConvertedKeyOrButton(rawKey)
+    -- Not the listening row: hand the key straight back to the game. Without
+    -- this a stale keyboard-enabled button silently swallows input.
+    if listeningRow ~= row then
+        row.KeyButton:SetPropagateKeyboardInput(true)
+        row.KeyButton:EnableKeyboard(false)
+        return
+    end
 
-	if IsKeyPressIgnoredForBinding(key) then
-		return -- a bare modifier; wait for the real key
-	end
+    local key = GetConvertedKeyOrButton(rawKey)
 
-	if key == "ESCAPE" then
-		StopListening()
-		return
-	end
+    if IsKeyPressIgnoredForBinding(key) then
+        return -- a bare modifier; wait for the real key
+    end
 
-	if key == "BACKSPACE" or key == "DELETE" then
-		FC.SetLayoutKey(row.action, nil)
-		StopListening()
-		return
-	end
+    if key == "ESCAPE" then
+        StopListening()
+        return
+    end
 
-	FC.SetLayoutKey(row.action, CreateKeyChordStringUsingMetaKeyState(key))
-	StopListening()
+    if key == "BACKSPACE" or key == "DELETE" then
+        FC.SetLayoutKey(row.action, nil)
+        StopListening()
+        return
+    end
+
+    FC.SetLayoutKey(row.action, CreateKeyChordStringUsingMetaKeyState(key))
+    StopListening()
 end
 
 --------------------------------------------------------------------------------
@@ -93,6 +118,8 @@ local function CreateRow(parent, index, entry)
 	row.KeyButton:SetSize(150, 22)
 	row.KeyButton:SetPoint("LEFT", row.Label, "RIGHT", 12, 0)
 	row.KeyButton:RegisterForClicks("LeftButtonUp")
+	row.KeyButton:EnableKeyboard(false)
+	row.KeyButton:SetPropagateKeyboardInput(true)
 	row.KeyButton:SetScript("OnClick", function() StartListening(row) end)
 	row.KeyButton:SetScript("OnKeyDown", function(_, key) OnKeyCaptured(row, key) end)
 	row.KeyButton:SetScript("OnHide", StopListening)
@@ -113,6 +140,7 @@ local function Build()
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", frame.StartMoving)
 	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+	frame:SetScript("OnHide", StopListening)
 	frame:SetFrameStrata("HIGH")
 	frame:Hide()
 
@@ -134,8 +162,13 @@ local function Build()
 		if self:GetChecked() then
 			FC.ClearCustom()
 		else
-			FC.BeginCustom()
-			FC.Refresh()
+			-- Declines if there is no cluster to copy; re-tick so the box never
+			-- shows a custom layout that was not actually created.
+			if FC.BeginCustom() then
+				FC.Refresh()
+			else
+				self:SetChecked(true)
+			end
 		end
 		FlightControlUI:Refresh()
 	end)

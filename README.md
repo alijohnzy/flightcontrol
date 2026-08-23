@@ -11,8 +11,9 @@ pitch on `SHIFT-W` / `SHIFT-S` — and then hit this: holding `SHIFT` to pitch c
 
 ## What it does
 
-While you're airborne, the bare movement cluster *is* the flight cluster. No modifier
-needed:
+While you're airborne, the bare movement cluster *is* the flight cluster. Every change is a
+straight **exchange** — whatever gets displaced moves onto the key that used to hold its
+replacement, so nothing is lost while you fly:
 
 | key | on the ground | while flying |
 | --- | --- | --- |
@@ -20,18 +21,31 @@ needed:
 | `S` | Move Backward | **Pitch Down** |
 | `A` | Strafe Left | **Turn Left** |
 | `D` | Strafe Right | **Turn Right** |
+| `SHIFT-W` | Pitch Up | **Move Forward** |
+| `SHIFT-S` | Pitch Down | **Move Backward** |
+| `SHIFT-A` | Turn Left | **Strafe Left** |
+| `SHIFT-D` | Turn Right | **Strafe Right** |
 
-Nothing is lost while you fly — each displaced command moves onto the key that used to hold
-its replacement, so `SHIFT-W` becomes Move Forward for the duration. Land, and every one of
-them goes straight back.
+Land, and every one of them goes straight back.
+
+The top half is always your movement cluster. The bottom half follows wherever *you* keep
+pitch and turn — if your turn keys are the arrow keys, then strafe moves to the arrow keys
+while you fly rather than to `SHIFT-A` / `SHIFT-D`.
+
+**Keys that already do the right thing are skipped**, so if you already have Turn on `A`/`D`,
+only the pitch rows change.
+
+**If something has nowhere to go it simply has no key while you fly.** With no turn keys
+bound anywhere, `A`/`D` still become Turn — and Strafe has nothing to swap with, so it goes
+unbound until you land. No key is ever invented, and nothing you didn't ask for is taken.
+
+Run `/fcon layout` to see your own version of this table, including anything that would be
+left without a key.
 
 ## It fits your keybindings
 
 There's no assumption that you use `WASD`. FlightControl reads your actual bindings and
 works out where your movement cluster is — `ESDF` and AZERTY `ZQSD` are found automatically.
-
-**Keys that already do the right thing are left alone.** If you already have Turn on
-`A`/`D`, only pitch changes.
 
 ## Getting started
 

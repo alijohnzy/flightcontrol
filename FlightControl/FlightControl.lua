@@ -261,7 +261,7 @@ end
 
 local function ActiveLayout()
 	if db.flightLayout then
-		derivedFrom = "pinned by /fcon layout"
+		derivedFrom = "set by hand -- /fcon learn goes back to automatic"
 		return db.flightLayout
 	end
 	return DeriveLayout()
@@ -314,6 +314,11 @@ local function BuildPlan()
 						end
 					end
 				end
+				-- If nothing holds the wanted command there is no key to trade
+				-- with, and the displaced one simply has no key for the flight.
+				-- Inventing a chord for it would mean binding something the
+				-- player never agreed to, and any chord we picked might already
+				-- mean something to them.
 				if target then Add(target, currentOnKey) end
 			end
 		end
@@ -729,10 +734,9 @@ local function ShowLayout()
 	end
 	local stranded = ActionsStrandedByPlan()
 	if #stranded > 0 then
-		Print("|cffffaa00warning:|r these lose every key while flying, because nothing")
-		Print("|cffffaa00       |r currently holds the action being moved onto their key:")
-		Print("         " .. table.concat(stranded, ", "))
-		Print("         bind them somewhere, or /fcon layout <key> none to leave that key alone")
+		Print("no key while flying: " .. table.concat(stranded, ", "))
+		Print("  nothing holds the command taking their key, so there is nothing to swap")
+		Print("  them with. They come back on landing.")
 	end
 	Print("change with: /fcon layout W PITCHUP   |   /fcon layout W none   |   /fcon layout reset")
 end
@@ -907,7 +911,14 @@ FC.Print = Print
 -- Pin the current layout so the UI can edit it, if it isn't pinned already.
 function FC.BeginCustom()
 	if not db.flightLayout then
-		db.flightLayout = CopyTable(DeriveLayout())
+		local derived = DeriveLayout()
+		-- Pinning an empty layout would switch the addon off for good, and the
+		-- only sign of it would be a checkbox that refuses to stay ticked.
+		if #derived == 0 then
+			Print("no movement cluster found yet -- staying on automatic")
+			return nil
+		end
+		db.flightLayout = CopyTable(derived)
 	end
 	return db.flightLayout
 end
@@ -928,9 +939,17 @@ end
 -- key = nil removes the action from the layout entirely.
 function FC.SetLayoutKey(action, key)
 	local layout = FC.BeginCustom()
+	if not layout then return end
 
 	for i = #layout, 1, -1 do
-		if layout[i].action == action or (key and layout[i].key == key) then
+		local entry = layout[i]
+		-- Taking a key off another command leaves that row blank, which is easy
+		-- to miss in a window full of rows. Say so.
+		if key and entry.key == key and entry.action ~= action then
+			Print(("%s taken from %s -- that one now has no key")
+				:format(key, entry.action))
+		end
+		if entry.action == action or (key and entry.key == key) then
 			table.remove(layout, i)
 		end
 	end
@@ -970,6 +989,7 @@ Initialise = function()
 	BuildPlan()
 	ApplyMode()
 	WarnOnSlashConflict()
+
 end
 
 -- Registered at file scope, NOT from inside a login handler.

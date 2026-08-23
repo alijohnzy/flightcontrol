@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.2
+
+- **Fixed: the options window swallowed the keyboard.** Clicking a key row put it into
+  capture mode and nothing guaranteed capture ever ended, so you could not move with the
+  window open — and every movement key you pressed was silently written into the layout
+  instead. Capture now releases on Escape, on closing the window, and after six seconds, and
+  a key arriving at any other row is handed straight back to the game.
+- Assigning a key that another row already holds now says so, instead of quietly leaving
+  that row blank.
+- If nothing holds the command being moved onto a key, the displaced one now simply has no
+  key while flying rather than being given an invented one. It returns on landing.
+- The options window no longer describes a layout set with its own checkbox as "pinned by
+  /fcon layout".
+
 ## 1.0.1
 
 Packaging only — the addon itself is unchanged from 1.0.0.
