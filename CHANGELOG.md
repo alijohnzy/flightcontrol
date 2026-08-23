@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3
+
+Documentation and metadata only — the addon itself is unchanged from 1.0.2.
+
+- The description now explains the three cases you can actually be in: the key already does
+  the flight command, the flight command lives on another key, or it isn't bound at all.
+- Category corrected to Miscellaneous. It was listed as Action Bars, which the addon has
+  nothing to do with.
+
 ## 1.0.2
 
 - **Fixed: the options window swallowed the keyboard.** Clicking a key row put it into
