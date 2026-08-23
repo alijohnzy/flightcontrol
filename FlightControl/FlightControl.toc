@@ -5,6 +5,8 @@
 ## Version: 1.0.0
 ## SavedVariables: FlightControlDB
 ## IconTexture: Interface\AddOns\FlightControl\logo
+## X-Wago-ID: ZKxZDENk
+## X-Website: https://github.com/alijohnzy/flightcontrol
 ## X-Category: Action Bars
 ## X-License: MIT
 ## AllowLoadGameType: mainline
