@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without the leading v (e.g. 1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION"
+
+      # A tag that disagrees with the TOC ships an addon that reports the wrong
+      # version to every addon manager, which is worse than failing the build.
+      - name: Check the TOC agrees
+        run: |
+          TOC_VERSION=$(sed -n 's/^## Version:[[:space:]]*//p' FlightControl/FlightControl.toc | tr -d '\r')
+          echo "tag=${{ steps.version.outputs.version }}  toc=$TOC_VERSION"
+          if [ "$TOC_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::TOC says $TOC_VERSION but the release is ${{ steps.version.outputs.version }}."
+            exit 1
+          fi
+
+      # Files are listed one by one rather than copying the folder, so nothing
+      # can slip into a release by being dropped in the directory later.
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          mkdir -p dist/FlightControl
+          cp FlightControl/FlightControl.toc   dist/FlightControl/
+          cp FlightControl/FlightControl.lua   dist/FlightControl/
+          cp FlightControl/FlightControlUI.lua dist/FlightControl/
+          cp FlightControl/logo.tga            dist/FlightControl/
+          cp LICENSE                           dist/FlightControl/
+          cd dist
+          zip -r "../FlightControl-${{ steps.version.outputs.version }}.zip" FlightControl
+
+      - name: Show what is in it
+        run: unzip -l "FlightControl-${{ steps.version.outputs.version }}.zip"
+
+      # Written to a file rather than a step output: changelog text containing
+      # quotes or backticks would otherwise break the shell quoting below.
+      - name: Pull this version's changelog entry
+        run: |
+          awk -v v="## ${{ steps.version.outputs.version }}" '
+            $0 == v {found = 1; next}
+            found && /^## / {exit}
+            found {print}
+          ' CHANGELOG.md > release-notes.md
+          cat release-notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file release-notes.md \
+            "FlightControl-${VERSION}.zip" \
+          || gh release upload "v${VERSION}" "FlightControl-${VERSION}.zip" --clobber

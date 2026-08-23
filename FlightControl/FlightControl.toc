@@ -1,0 +1,13 @@
+## Interface: 120100
+## Title: FlightControl
+## Notes: While flying, your movement cluster becomes pitch + turn. Reverts on landing.
+## Author: gageracer
+## Version: 1.0.0
+## SavedVariables: FlightControlDB
+## IconTexture: Interface\AddOns\FlightControl\logo
+## X-Category: Action Bars
+## X-License: MIT
+## AllowLoadGameType: mainline
+
+FlightControl.lua
+FlightControlUI.lua

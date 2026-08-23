@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="36%" r="74%">
+      <stop offset="0%"   stop-color="#2f3f6b"/>
+      <stop offset="58%"  stop-color="#161f3a"/>
+      <stop offset="100%" stop-color="#090d1c"/>
+    </radialGradient>
+    <linearGradient id="dragon" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ffe08a"/>
+      <stop offset="55%"  stop-color="#ffbe4d"/>
+      <stop offset="100%" stop-color="#ef8a2c"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="256" cy="256" r="252" fill="url(#bg)"/>
+
+  <!-- rings sit behind the dragon so it occludes them: gyroscope depth -->
+  <g fill="none" stroke-width="16" stroke-linecap="round">
+    <!-- yaw: horizontal ring -->
+    <ellipse cx="256" cy="262" rx="202" ry="64" stroke="#45d3ec"/>
+    <!-- pitch: vertical ring -->
+    <ellipse cx="256" cy="262" rx="64" ry="202" stroke="#8b8cf5"/>
+  </g>
+  <!-- arrowheads: apex along the tangent, base straddling the ring -->
+  <path d="M 458,312 L 428,256 L 488,256 Z" fill="#45d3ec"/>
+  <path d="M 54,212  L 84,268  L 24,268  Z" fill="#45d3ec"/>
+  <path d="M 306,60  L 250,30  L 250,90  Z" fill="#8b8cf5"/>
+  <path d="M 206,464 L 262,494 L 262,434 Z" fill="#8b8cf5"/>
+
+  <g fill="url(#dragon)" transform="translate(256,262) scale(0.84) translate(-256,-262)">
+    <!-- wings: deep scallops so it reads as a dragon, not a bird -->
+    <path d="M 250,240 C 202,194 136,152 52,138
+             C 74,176 84,208 98,238
+             C 118,208 146,216 166,250
+             C 186,216 214,220 242,250 Z"/>
+    <path d="M 262,240 C 310,194 376,152 460,138
+             C 438,176 428,208 414,238
+             C 394,208 366,216 346,250
+             C 326,216 298,220 270,250 Z"/>
+    <!-- body -->
+    <path d="M 256,190 C 274,210 284,246 282,282
+             C 280,318 268,350 256,374
+             C 244,350 232,318 230,282
+             C 228,246 238,210 256,190 Z"/>
+    <!-- head -->
+    <path d="M 256,200 C 240,190 232,170 240,152
+             C 246,139 266,139 272,152
+             C 280,170 272,190 256,200 Z"/>
+    <!-- horns -->
+    <path d="M 243,158 C 228,146 214,130 206,114 C 226,124 240,136 250,150 Z"/>
+    <path d="M 269,158 C 284,146 298,130 306,114 C 286,124 272,136 262,150 Z"/>
+    <!-- tail with a spade tip -->
+    <path d="M 256,368 C 270,398 266,424 250,444
+             C 241,456 234,468 239,478
+             C 250,463 263,461 274,470
+             C 287,455 296,432 296,406
+             C 296,383 278,370 256,368 Z"/>
+  </g>
+</svg>
