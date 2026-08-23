@@ -7,7 +7,7 @@
 ## IconTexture: Interface\AddOns\FlightControl\logo
 ## X-Wago-ID: ZKxZDENk
 ## X-Website: https://github.com/alijohnzy/flightcontrol
-## X-Category: Action Bars
+## X-Category: Miscellaneous
 ## X-License: MIT
 ## AllowLoadGameType: mainline
 
