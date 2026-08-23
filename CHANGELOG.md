@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.4
+
+Description only — the addon itself is unchanged from 1.0.2.
+
+- Screenshot of the options window added at the top of the description.
+- `/fcon ui` is now mentioned in the opening line, so it is clear how to start.
+
 ## 1.0.3
 
 Documentation and metadata only — the addon itself is unchanged from 1.0.2.
