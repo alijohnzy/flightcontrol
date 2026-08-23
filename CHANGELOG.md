@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+Packaging only — the addon itself is unchanged from 1.0.0.
+
+- Adds the Wago project ID and website to the addon metadata, so addon managers can match
+  the installed copy to its project page.
+- The release now uploads to Wago Addons automatically.
+
 ## 1.0.0
 
 First release.
