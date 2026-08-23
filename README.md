@@ -3,6 +3,8 @@
 **While you're flying, your movement keys become flight controls. When you land, they go
 back.**
 
+![The FlightControl options window: the keys it worked out from the player's own bindings, and a preview of exactly what changes in the air](https://raw.githubusercontent.com/alijohnzy/flightcontrol/main/assets/screenshot.png)
+
 ## The problem it solves
 
 Skyriding needs pitch, and your fingers are already on the movement keys. So most people put
