@@ -644,6 +644,44 @@ local function Refresh()
 	ApplyMode()
 end
 
+-- PLAYER_IS_GLIDING_CHANGED is the fast path, but it is not fired for every way
+-- a flight can end. Being summoned, dying, boarding a taxi and zoning all put
+-- the player on the ground without it, and the flight layout stayed applied.
+-- So the truth is re-read from GetGlidingInfo whenever something might have
+-- moved the player, and the bindings are corrected if they disagree.
+local function Reconcile(reason)
+	if not db or not db.enabled or not bindingsReady then return end
+
+	local shouldBeOn = IsFlightState()
+
+	if db.mode == "event" then
+		if eventApplied ~= shouldBeOn then
+			Debug(("reconcile after %s -> %s"):format(reason, tostring(shouldBeOn)))
+			ApplyEventBindings(shouldBeOn)
+		end
+	elseif db.mode == "swap" then
+		if (db.swapRestore ~= nil) ~= shouldBeOn then
+			Debug(("reconcile after %s -> %s"):format(reason, tostring(shouldBeOn)))
+			ApplySwapBindings(shouldBeOn)
+		end
+	end
+	-- secure mode needs nothing: its state driver re-evaluates the conditional
+	-- on its own, so the snippet clears the bindings without our help.
+end
+
+-- Anything that can end a flight without PLAYER_IS_GLIDING_CHANGED firing.
+local RECONCILE_EVENTS = {
+	PLAYER_ENTERING_WORLD        = true, -- summon, hearth, teleport, zoning
+	PLAYER_CONTROL_GAINED        = true, -- released from taxi, cutscene, summon
+	PLAYER_CONTROL_LOST          = true,
+	PLAYER_UNGHOST               = true, -- died mid-flight
+	PLAYER_ALIVE                 = true,
+	PLAYER_MOUNT_DISPLAY_CHANGED = true, -- dismounted by anything at all
+	UNIT_EXITED_VEHICLE          = true,
+	ZONE_CHANGED_NEW_AREA        = true,
+	PLAYER_CAN_GLIDE_CHANGED     = true, -- cannot glide implies not gliding
+}
+
 --------------------------------------------------------------------------------
 -- Probe
 --------------------------------------------------------------------------------
@@ -1011,6 +1049,9 @@ f:RegisterEvent("PLAYER_IS_GLIDING_CHANGED")
 f:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
 f:RegisterEvent("UPDATE_BINDINGS")
+for event in pairs(RECONCILE_EVENTS) do
+	f:RegisterEvent(event)
+end
 
 f:SetScript("OnEvent", function(_, event, arg1)
 	if event == "ADDON_LOADED" then
@@ -1057,8 +1098,11 @@ f:SetScript("OnEvent", function(_, event, arg1)
 		-- initialise at all, and nothing would work until the user poked the UI.
 		C_Timer.After(1, Initialise)
 
-	elseif event == "PLAYER_CAN_GLIDE_CHANGED" then
-		Debug("PLAYER_CAN_GLIDE_CHANGED -> " .. tostring(arg1) .. " (informational only)")
+		-- A loading screen is exactly how a summon interrupts a flight. Check
+		-- now, and again shortly after, because the player's state is not
+		-- necessarily settled the instant the screen clears.
+		Reconcile(event)
+		C_Timer.After(2, function() Reconcile(event .. " (delayed)") end)
 
 	elseif event == "PLAYER_IS_GLIDING_CHANGED" then
 		local on = arg1 and true or false
@@ -1078,6 +1122,12 @@ f:SetScript("OnEvent", function(_, event, arg1)
 		if pendingSwap ~= nil then ApplySwapBindings(pendingSwap) end
 		if db.enabled and db.mode == "secure" and not secureActive then
 			StartSecure()
+		end
+
+	elseif RECONCILE_EVENTS[event] then
+		-- UNIT_EXITED_VEHICLE carries a unit; the rest carry nothing useful.
+		if event ~= "UNIT_EXITED_VEHICLE" or arg1 == "player" then
+			Reconcile(event)
 		end
 
 	elseif event == "UPDATE_BINDINGS" then

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.6
+
+- **Fixed: the flight layout stayed on after being summoned mid-flight.** The keys only
+  changed back when the game reported that gliding had stopped, and that report is not made
+  for every way a flight can end. Being summoned, dying, boarding a taxi, hearthing and
+  zoning all put you on the ground without it, leaving WASD on pitch and turn.
+  The addon now re-checks whether you are actually airborne after any of those, and puts the
+  keys back if they disagree. Zoning while still genuinely flying leaves the layout alone.
+
 ## 1.0.5
 
 Metadata only. The addon itself is unchanged from 1.0.2.
