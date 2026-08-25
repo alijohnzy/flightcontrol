@@ -41,6 +41,22 @@ jobs:
             exit 1
           fi
 
+      # FlightControl/*.lua is generated from dev/ by tools/build.sh. Releasing
+      # without having run it would ship whatever was there last time, silently.
+      - name: Check the shipping files are up to date with dev/
+        run: |
+          set -euo pipefail
+          for f in FlightControl.lua FlightControlUI.lua; do
+            python3 tools/strip-comments.py "dev/$f" > "/tmp/$f"
+            if ! diff -q "/tmp/$f" "FlightControl/$f" >/dev/null; then
+              echo "::error::FlightControl/$f does not match dev/$f."
+              echo "::error::Run tools/build.sh and commit the result."
+              diff "FlightControl/$f" "/tmp/$f" | head -40
+              exit 1
+            fi
+          done
+          echo "shipping files match dev/"
+
       # Files are listed one by one rather than copying the folder, so nothing
       # can slip into a release by being dropped in the directory later.
       - name: Build the package

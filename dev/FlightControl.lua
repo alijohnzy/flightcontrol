@@ -1,22 +1,86 @@
+-- FlightControl -- while Skyriding, WASD becomes the strafe + pitch cluster.
+--
+-- The swap is computed from the player's own bindings rather than hardcoded.
+-- A "flight layout" says which action should sit on which key while flying; for
+-- each key that isn't already correct, the wanted action moves onto it and the
+-- action it displaced moves onto whichever key used to hold the wanted action.
+-- Nothing is invented and nothing is lost -- it is a straight exchange.
+--
+-- The flight layout is pitch on the vertical axis and turn on the horizontal:
+-- while gliding you are already moving forward, and turning is what actually
+-- steers a mount -- strafe only drifts you sideways without changing heading.
+--
+-- Worked example, W=PITCHUP A=TURNLEFT S=PITCHDOWN D=TURNRIGHT:
+--
+--   before                    after (while flying)
+--   W       MOVEFORWARD       W       PITCHUP
+--   SHIFT-W PITCHUP           SHIFT-W MOVEFORWARD
+--   S       MOVEBACKWARD      S       PITCHDOWN
+--   SHIFT-S PITCHDOWN         SHIFT-S MOVEBACKWARD
+--   A       STRAFELEFT        A       TURNLEFT
+--   SHIFT-A TURNLEFT          SHIFT-A STRAFELEFT
+--   D       STRAFERIGHT       D       TURNRIGHT
+--   SHIFT-D TURNRIGHT         SHIFT-D STRAFERIGHT
+--   LEFT    TURNLEFT          LEFT    TURNLEFT       (alternate, left alone)
+--
+-- which removes the reason the shift-modified layout misbehaves: nothing you
+-- need in flight is behind a modifier any more.
+--
+-- Three mechanisms, because only one of them can work in combat and which one is
+-- correct depends on facts that can only be checked in-game (see /fcon probe):
+--
+--   secure -- a SecureHandlerStateTemplate frame driven by RegisterStateDriver.
+--             The snippet calls self:SetBinding(), which the restricted
+--             environment exposes with no filtering on the action string
+--             (Blizzard_RestrictedAddOnEnvironment/RestrictedFrames.lua:565).
+--             Works in combat. Needs a macro conditional that is true exactly
+--             while flying.
+--
+--   event  -- PLAYER_CAN_GLIDE_CHANGED + SetOverrideBinding(). Detection is
+--             exact, but SetOverrideBinding is blocked during combat lockdown,
+--             so a state flip mid-combat is deferred to PLAYER_REGEN_ENABLED.
+--
+--   swap   -- SetBinding() on the real binding set, with the previous actions
+--             recorded and put back on landing. The fallback for the case where
+--             override bindings turn out not to reach the movement system while
+--             Skyriding. See .scratch ticket 04.
+--
+-- secure and event both use the override layer, so the player's saved bindings
+-- are never written to and ClearOverrideBindings restores them for free.
+
 local ADDON_NAME, FC = ...
 
-local MAX_PLAN_ENTRIES = 8
+local MAX_PLAN_ENTRIES = 8 -- the secure snippet reads a fixed number of slots
 
 local DEFAULTS = {
 	enabled = true,
-
+	-- event, not secure. The secure state driver runs its snippet the instant the
+	-- conditional flips and cannot wait for anything, so it rebinds keys that are
+	-- still held and sticks movement on every take-off. Only the insecure paths
+	-- can wait for a release, and with the movement functions protected that is
+	-- the only fix available. Combat coverage is the lesser loss.
 	mode = "event",
-
+	-- [bonusbar:5] alone is true the moment you MOUNT a Skyriding mount, including
+	-- standing still on the ground -- confirmed in-game. Adding [flying] narrows it
+	-- to actually airborne, which is what the swap should follow.
 	conditional = "[flying,bonusbar:5]",
 	verbose = false,
 	schema = 4,
 
+	-- nil = derive the movement cluster from the player's own bindings on every
+	-- refresh. Set by /fcon layout to pin it manually instead.
 	flightLayout = nil,
 
+	-- Flight-sim style inverted pitch: forward key dives, back key climbs.
+	-- Applies to derivation only -- a pinned custom layout is already explicit.
 	invertPitch = false,
 
+	-- Move each displaced action onto the key that used to hold the wanted one,
+	-- instead of leaving it unbound for the duration.
 	swapDisplaced = true,
 
+	-- swap mode only: what the affected keys were bound to before we touched
+	-- them. Persisted so a session that ends mid-flight is recoverable.
 	swapRestore = nil,
 }
 
@@ -25,10 +89,11 @@ local bindingsReady = false
 local Initialise
 local STATE_ID = "fcflight"
 
+-- Named shortcuts for /fcon cond, so the useful ones don't have to be memorised.
 local CONDITIONAL_PRESETS = {
-	air     = "[flying,bonusbar:5]",
-	flying  = "[flying]",
-	mounted = "[bonusbar:5]",
+	air     = "[flying,bonusbar:5]", -- airborne AND on a Skyriding mount (default)
+	flying  = "[flying]",            -- airborne on anything, incl. steady flight
+	mounted = "[bonusbar:5]",        -- mounted on a Skyriding mount, grounded or not
 }
 
 local CONDITIONAL_CANDIDATES = {
@@ -51,6 +116,14 @@ local function Debug(...)
 	if db and db.verbose then Print(...) end
 end
 
+--------------------------------------------------------------------------------
+-- Learning the player's movement cluster
+--------------------------------------------------------------------------------
+
+-- The cluster is wherever the player actually put movement, not literally WASD.
+-- An ESDF player has MOVEFORWARD on E; a Legacy-style player has TURNLEFT rather
+-- than STRAFELEFT sitting on the left of the cluster. Both are derived, not assumed.
+
 local MODIFIERS = { "SHIFT-", "CTRL-", "ALT-", "META-" }
 local ARROW_KEYS = { UP = true, DOWN = true, LEFT = true, RIGHT = true }
 
@@ -62,6 +135,9 @@ local function IsModified(key)
 	return false
 end
 
+-- Higher is a better home for a movement command: an unmodified single character
+-- beats a named key, which beats an arrow or mouse button, which beats anything
+-- behind a modifier. The modifier case is the whole reason this addon exists.
 local function ScoreKey(key)
 	if not key or key == "" then return -1 end
 	if IsModified(key) then return 0 end
@@ -88,6 +164,8 @@ local function BestKeyFor(action)
 	return best, bestScore
 end
 
+-- For the left and right of the cluster, either the strafe or the turn command
+-- may be the one sitting on the good key. Take whichever scores higher.
 local function BestClusterKey(actionA, actionB)
 	local keyA, scoreA = BestKeyFor(actionA)
 	local keyB, scoreB = BestKeyFor(actionB)
@@ -95,10 +173,14 @@ local function BestClusterKey(actionA, actionB)
 	return keyB, scoreB
 end
 
+-- Scoring alone picks the wrong keys when strafe and turn both sit on plain
+-- letters: a player with A=TURNLEFT and Q=STRAFELEFT has their hand on A, but
+-- both score identically. Physical adjacency to the backward key breaks the tie,
+-- which also means the cluster is found on non-QWERTY layouts without asking.
 local KEYBOARD_ROWS = {
-	"QWERTYUIOP", "ASDFGHJKL",  "ZXCVBNM",
-	"AZERTYUIOP", "QSDFGHJKLM", "WXCVBN",
-	"QWERTZUIOP", "YXCVBNM",
+	"QWERTYUIOP", "ASDFGHJKL",  "ZXCVBNM", -- QWERTY
+	"AZERTYUIOP", "QSDFGHJKLM", "WXCVBN",  -- AZERTY
+	"QWERTZUIOP", "YXCVBNM",               -- QWERTZ
 }
 
 local function KeyHoldsAny(key, ...)
@@ -109,6 +191,8 @@ local function KeyHoldsAny(key, ...)
 	return false
 end
 
+-- Returns the neighbours of `key` on whichever row explains the most of the
+-- player's existing left/right movement bindings.
 local function NeighboursOf(key)
 	if not key or #key ~= 1 then return nil end
 	key = key:upper()
@@ -129,12 +213,15 @@ local function NeighboursOf(key)
 	return best
 end
 
-local derivedFrom = nil
+local derivedFrom = nil -- description of what learning found, for /fcon status
 
 local function DeriveLayout()
 	local fwd = BestKeyFor("MOVEFORWARD")
 	local back = BestKeyFor("MOVEBACKWARD")
 
+	-- Trust adjacency only when both neighbours of the backward key already hold
+	-- a left/right movement command -- that is what makes it the cluster rather
+	-- than a coincidence. Otherwise fall back to scoring.
 	local how = "adjacent to " .. tostring(back)
 	local neighbours = NeighboursOf(back)
 	local left, right
@@ -151,6 +238,10 @@ local function DeriveLayout()
 		if key then layout[#layout + 1] = { key = key, action = action } end
 	end
 
+	-- Forward/back give up their keys to pitch: while gliding you are already
+	-- moving forward, so the cluster's vertical axis is free for climb/dive.
+	-- Left/right become turn rather than strafe, because turning is what steers
+	-- a mount -- strafe only drifts you sideways without changing heading.
 	local fwdPitch, backPitch = "PITCHUP", "PITCHDOWN"
 	if db.invertPitch then
 		fwdPitch, backPitch = backPitch, fwdPitch
@@ -176,6 +267,15 @@ local function ActiveLayout()
 	return DeriveLayout()
 end
 
+--------------------------------------------------------------------------------
+-- The plan
+--------------------------------------------------------------------------------
+
+-- plan[i] = { key = "W", action = "PITCHUP" }
+--
+-- Built only while no override of ours is live. GetBindingAction and
+-- GetBindingKey both read through the override layer, so building the plan
+-- while the swap is applied would read back our own work and lose the originals.
 local plan = {}
 
 local function BuildPlan()
@@ -183,7 +283,8 @@ local function BuildPlan()
 
 	local function Add(key, action)
 		if #newPlan >= MAX_PLAN_ENTRIES then return end
-
+		-- `from` is what the key does with the flight layout off. Recorded here,
+		-- while nothing of ours is applied, so the hand-over knows both sides.
 		newPlan[#newPlan + 1] = {
 			key = key,
 			action = action,
@@ -199,7 +300,10 @@ local function BuildPlan()
 			Add(want.key, want.action)
 
 			if db.swapDisplaced and currentOnKey ~= "" then
-
+				-- The displaced action goes to exactly one key: the least
+				-- accessible of those already holding the wanted action -- i.e.
+				-- the modified one. Handing it to every such key would clobber
+				-- alternates like the arrow keys, which should keep working.
 				local other1, other2 = GetBindingKey(want.action)
 				local target, targetScore
 				for _, other in ipairs({ other1 or false, other2 or false }) do
@@ -210,7 +314,11 @@ local function BuildPlan()
 						end
 					end
 				end
-
+				-- If nothing holds the wanted command there is no key to trade
+				-- with, and the displaced one simply has no key for the flight.
+				-- Inventing a chord for it would mean binding something the
+				-- player never agreed to, and any chord we picked might already
+				-- mean something to them.
 				if target then Add(target, currentOnKey) end
 			end
 		end
@@ -229,6 +337,10 @@ local function BuildPlan()
 	end
 end
 
+-- A plan can strand an action with no key at all: if nothing currently holds
+-- PITCHUP, the key we take for it has nowhere to hand its old action back to.
+-- Silently unbinding someone's Move Forward would be a nasty surprise, so it is
+-- reported rather than assumed acceptable.
 local WATCHED_ACTIONS = {
 	"MOVEFORWARD", "MOVEBACKWARD", "STRAFELEFT", "STRAFERIGHT",
 	"TURNLEFT", "TURNRIGHT", "PITCHUP", "PITCHDOWN",
@@ -259,8 +371,14 @@ local function ActionsStrandedByPlan()
 	return stranded
 end
 
+--------------------------------------------------------------------------------
+-- Secure mechanism
+--------------------------------------------------------------------------------
+
 local driver = CreateFrame("Frame", "FlightControlDriver", UIParent, "SecureHandlerStateTemplate")
 
+-- Uses only self:GetAttribute, self:SetBinding and self:ClearBindings, plus the
+-- `..` operator -- all language-level or exposed to the restricted environment.
 driver:SetAttribute("_onstate-" .. STATE_ID, ([[
 	self:ClearBindings()
 	if newstate == "on" then
@@ -308,11 +426,31 @@ local function StopSecure()
 	Debug("secure driver unregistered")
 end
 
+--------------------------------------------------------------------------------
+-- Held-key deferral
+--------------------------------------------------------------------------------
+
+-- Movement bindings are runOnUp="true" (Bindings_Standard.xml): the key-up runs
+-- whatever the key is bound to *at that moment*. Rebind a key while it is held
+-- and the old action's Stop never runs, so the command sticks on -- take off
+-- holding W and you are still running after you land; the same on turn leaves
+-- the camera spinning after landing.
+--
+-- Handing the key over (stop the old command, start the new one) would be the
+-- nicer behaviour, but MoveForwardStop/PitchUpStart and the rest are PROTECTED:
+-- calling them raises ADDON_ACTION_FORBIDDEN and taints the addon. pcall does
+-- not suppress it. Confirmed in-game on 12.1.0.69404.
+--
+-- So the only mechanism available is to never rebind a key that is currently
+-- down. The release delivers the key-up to the old binding, which stops the old
+-- command properly, and only then does the key change meaning.
+
 local heldWatcher = CreateFrame("Frame")
 heldWatcher:Hide()
 
-local deferred = {}
+local deferred = {} -- key -> function to run once the key comes up
 
+-- IsKeyDown takes a bare key, not a chord.
 local function StripModifiers(key)
 	return key:match("([^%-]+)$") or key
 end
@@ -321,6 +459,9 @@ local function ModifierDown(fn)
 	return type(fn) == "function" and not not fn()
 end
 
+-- A chord counts as held only if its modifiers match exactly. Testing the base
+-- key alone would report SHIFT-W as held whenever W is down and needlessly
+-- defer half the plan.
 local function IsHeld(key)
 	local upper = key:upper()
 
@@ -345,7 +486,7 @@ local function ApplyOrDefer(key, apply)
 end
 
 heldWatcher:SetScript("OnUpdate", function(self)
-	if InCombatLockdown() then return end
+	if InCombatLockdown() then return end -- neither binding API is usable now
 
 	local remaining = false
 	for key, apply in pairs(deferred) do
@@ -360,10 +501,14 @@ heldWatcher:SetScript("OnUpdate", function(self)
 	if not remaining then self:Hide() end
 end)
 
+--------------------------------------------------------------------------------
+-- Event mechanism
+--------------------------------------------------------------------------------
+
 local eventOwner = CreateFrame("Frame", "FlightControlEventOwner", UIParent)
 local eventApplied = false
 local pendingEvent = nil
-local appliedKeys = {}
+local appliedKeys = {} -- keys we currently hold an override on
 
 local function ApplyEventBindings(on)
 	if InCombatLockdown() then
@@ -373,6 +518,10 @@ local function ApplyEventBindings(on)
 	end
 	pendingEvent = nil
 
+	-- EVERY plan key goes in, not just the ones we actually managed to set. A key
+	-- that was held through the last transition still has a pending closure from
+	-- it; leaving it out here means that stale closure fires on release and
+	-- applies the wrong state -- turning the flight layout on after landing.
 	local targets = {}
 	for _, entry in ipairs(plan) do
 		targets[entry.key] = on and entry.action or false
@@ -392,8 +541,17 @@ local function ApplyEventBindings(on)
 	Debug(on and "flight layout applied" or "flight layout cleared")
 end
 
+--------------------------------------------------------------------------------
+-- Swap mechanism -- writes the real binding set
+--------------------------------------------------------------------------------
+
 local pendingSwap = nil
 
+-- Deliberately never calls SaveBindings(). SetBinding alone changes the live
+-- binding without persisting it, so a crash, disconnect or /reload while
+-- airborne reverts the swap for free. db.swapRestore covers the one case that
+-- survives that: the player opening the keybinding panel and saving while the
+-- swap happens to be applied.
 local function ApplySwapBindings(on)
 	if InCombatLockdown() then
 		pendingSwap = on
@@ -402,6 +560,9 @@ local function ApplySwapBindings(on)
 	end
 	pendingSwap = nil
 
+	-- Nothing to put back. Without this, the other modes' calls to
+	-- ApplySwapBindings(false) would queue a deferred closure per held key that
+	-- does nothing but keep the watcher spinning.
 	if not on and not db.swapRestore then return end
 
 	db.swapRestore = db.swapRestore or {}
@@ -411,7 +572,7 @@ local function ApplySwapBindings(on)
 		local key, action = entry.key, entry.action
 		ApplyOrDefer(key, function()
 			if on then
-
+				-- recorded per key, before that key is touched, never after
 				if restore[key] == nil then
 					restore[key] = GetBindingAction(key) or ""
 				end
@@ -424,6 +585,8 @@ local function ApplySwapBindings(on)
 				end
 			end
 
+			-- Only drop the record once every key really is back, otherwise a
+			-- still-deferred key would lose the value it needs to restore.
 			if next(restore) == nil and db.swapRestore == restore then
 				db.swapRestore = nil
 			end
@@ -433,6 +596,13 @@ local function ApplySwapBindings(on)
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
 end
 
+--------------------------------------------------------------------------------
+-- Mode switching
+--------------------------------------------------------------------------------
+
+-- isGliding, not canGlide. canGlide is "could glide if you took off" and is true
+-- while sitting on the ground mounted; isGliding is actually airborne. Blizzard's
+-- own Dragonriding tutorial uses isGliding for its take-off / land steps.
 local function IsFlightState()
 	local isGliding = C_PlayerInfo.GetGlidingInfo()
 	return isGliding
@@ -465,6 +635,7 @@ local function ApplyMode()
 	end
 end
 
+-- Rebuild from the live bindings and re-apply. Only safe with nothing of ours applied.
 local function Refresh()
 	StopSecure()
 	ApplyEventBindings(false)
@@ -473,6 +644,11 @@ local function Refresh()
 	ApplyMode()
 end
 
+-- PLAYER_IS_GLIDING_CHANGED is the fast path, but it is not fired for every way
+-- a flight can end. Being summoned, dying, boarding a taxi and zoning all put
+-- the player on the ground without it, and the flight layout stayed applied.
+-- So the truth is re-read from GetGlidingInfo whenever something might have
+-- moved the player, and the bindings are corrected if they disagree.
 local function Reconcile(reason)
 	if not db or not db.enabled or not bindingsReady then return end
 
@@ -489,20 +665,26 @@ local function Reconcile(reason)
 			ApplySwapBindings(shouldBeOn)
 		end
 	end
-
+	-- secure mode needs nothing: its state driver re-evaluates the conditional
+	-- on its own, so the snippet clears the bindings without our help.
 end
 
+-- Anything that can end a flight without PLAYER_IS_GLIDING_CHANGED firing.
 local RECONCILE_EVENTS = {
-	PLAYER_ENTERING_WORLD        = true,
-	PLAYER_CONTROL_GAINED        = true,
+	PLAYER_ENTERING_WORLD        = true, -- summon, hearth, teleport, zoning
+	PLAYER_CONTROL_GAINED        = true, -- released from taxi, cutscene, summon
 	PLAYER_CONTROL_LOST          = true,
-	PLAYER_UNGHOST               = true,
+	PLAYER_UNGHOST               = true, -- died mid-flight
 	PLAYER_ALIVE                 = true,
-	PLAYER_MOUNT_DISPLAY_CHANGED = true,
+	PLAYER_MOUNT_DISPLAY_CHANGED = true, -- dismounted by anything at all
 	UNIT_EXITED_VEHICLE          = true,
 	ZONE_CHANGED_NEW_AREA        = true,
-	PLAYER_CAN_GLIDE_CHANGED     = true,
+	PLAYER_CAN_GLIDE_CHANGED     = true, -- cannot glide implies not gliding
 }
+
+--------------------------------------------------------------------------------
+-- Probe
+--------------------------------------------------------------------------------
 
 local TURN_STRAFE_STYLE = {
 	[0] = "Modern (A/D strafe)",
@@ -528,6 +710,8 @@ local function Probe()
 	local style = C_KeyBindings.GetTurnStrafeStyle()
 	Print(("turn/strafe style: %s"):format(TURN_STRAFE_STYLE[style] or tostring(style)))
 
+	-- pcall each one: an unrecognised conditional must not abort the sweep,
+	-- since finding out which ones the client accepts is half the point.
 	Print("conditionals that are currently TRUE:")
 	local anyTrue = false
 	for _, cond in ipairs(CONDITIONAL_CANDIDATES) do
@@ -544,6 +728,10 @@ local function Probe()
 	end
 	Print("---------------")
 end
+
+--------------------------------------------------------------------------------
+-- Slash commands
+--------------------------------------------------------------------------------
 
 local function Status()
 	Print(("enabled=%s mode=%s conditional=%s swapDisplaced=%s")
@@ -594,6 +782,9 @@ end
 SLASH_FLIGHTCONTROL1 = "/fcon"
 SLASH_FLIGHTCONTROL2 = "/flightcontrol"
 
+-- Two addons claiming the same slash token is resolved silently in favour of
+-- whichever loaded last, so the loser just stops responding with no error. Worth
+-- one scan of _G at login to say so out loud. /flightcontrol is the safe fallback.
 local function WarnOnSlashConflict()
 	local conflicts = {}
 	for name, value in pairs(_G) do
@@ -667,6 +858,7 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 			end
 			key, action = key:upper(), action:upper()
 
+			-- First manual edit pins the currently-derived layout, then edits it.
 			db.flightLayout = db.flightLayout or CopyTable(DeriveLayout())
 
 			local found
@@ -733,6 +925,10 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 	end
 end
 
+--------------------------------------------------------------------------------
+-- Interface for FlightControlUI.lua
+--------------------------------------------------------------------------------
+
 FC.FLIGHT_ACTIONS = {
 	{ action = "PITCHUP",    label = "Pitch Up" },
 	{ action = "PITCHDOWN",  label = "Pitch Down" },
@@ -750,10 +946,12 @@ function FC.GetStranded() return ActionsStrandedByPlan() end
 function FC.Refresh() Refresh() end
 FC.Print = Print
 
+-- Pin the current layout so the UI can edit it, if it isn't pinned already.
 function FC.BeginCustom()
 	if not db.flightLayout then
 		local derived = DeriveLayout()
-
+		-- Pinning an empty layout would switch the addon off for good, and the
+		-- only sign of it would be a checkbox that refuses to stay ticked.
 		if #derived == 0 then
 			Print("no movement cluster found yet -- staying on automatic")
 			return nil
@@ -775,13 +973,16 @@ function FC.ClearCustom()
 	Refresh()
 end
 
+-- Assign `key` to `action`, dropping any other flight action that held it.
+-- key = nil removes the action from the layout entirely.
 function FC.SetLayoutKey(action, key)
 	local layout = FC.BeginCustom()
 	if not layout then return end
 
 	for i = #layout, 1, -1 do
 		local entry = layout[i]
-
+		-- Taking a key off another command leaves that row blank, which is easy
+		-- to miss in a window full of rows. Say so.
 		if key and entry.key == key and entry.action ~= action then
 			Print(("%s taken from %s -- that one now has no key")
 				:format(key, entry.action))
@@ -797,14 +998,26 @@ function FC.SetLayoutKey(action, key)
 	Refresh()
 end
 
+--------------------------------------------------------------------------------
+-- Start-up
+--------------------------------------------------------------------------------
+
+-- Bindings are not loaded when PLAYER_LOGIN fires. Building the plan before
+-- BINDINGS_LOADED reads a partially-populated set and produces a wrong plan
+-- (observed in-game: MOVEFORWARD handed to INSERT, because PITCHUP was still on
+-- its default key). Blizzard's own binding code waits on the same three events.
 Initialise = function()
 	if bindingsReady then return end
 
+	-- ADDON_LOADED should always beat this, but if the addon were ever loaded on
+	-- demand it might not -- re-arm rather than silently never starting.
 	if not db then
 		C_Timer.After(0.5, Initialise)
 		return
 	end
 
+	-- A surviving swapRestore means the last session ended mid-flight.
+	-- Put the bindings back before reading them for the new plan.
 	if db.swapRestore then
 		Print("last session ended mid-swap -- restoring bindings")
 		ApplySwapBindings(false)
@@ -817,8 +1030,17 @@ Initialise = function()
 
 end
 
+-- Registered at file scope, NOT from inside a login handler.
+-- EventUtil.ContinueAfterAllEvents only counts events that arrive *after* it is
+-- called -- it has no "already fired" check -- and VARIABLES_LOADED and
+-- BINDINGS_LOADED both fire before PLAYER_LOGIN. Registering any later means
+-- waiting forever for events that have already been and gone.
 EventUtil.ContinueAfterAllEvents(Initialise,
 	"PLAYER_ENTERING_WORLD", "VARIABLES_LOADED", "BINDINGS_LOADED")
+
+--------------------------------------------------------------------------------
+-- Wiring
+--------------------------------------------------------------------------------
 
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
@@ -836,7 +1058,8 @@ f:SetScript("OnEvent", function(_, event, arg1)
 		if arg1 ~= ADDON_NAME then return end
 		FlightControlDB = FlightControlDB or {}
 		db = FlightControlDB
-
+		-- Read both of these BEFORE filling in defaults: the defaults loop would
+		-- otherwise seed db.schema itself and make every profile look current.
 		local isNewProfile = (next(db) == nil)
 		local fromSchema = db.schema or 1
 
@@ -846,6 +1069,8 @@ f:SetScript("OnEvent", function(_, event, arg1)
 			end
 		end
 
+		-- schema 1 shipped with [bonusbar:5], which turned out to be true from the
+		-- moment you mount rather than from take-off. Move anyone still on it.
 		if not isNewProfile and fromSchema < 2 then
 			if db.conditional == "[bonusbar:5]" then
 				db.conditional = DEFAULTS.conditional
@@ -854,6 +1079,10 @@ f:SetScript("OnEvent", function(_, event, arg1)
 			end
 		end
 
+		-- Secure mode rebinds from inside its snippet the instant the conditional
+		-- flips, so it cannot wait for a held key to come up -- and the movement
+		-- stop/start functions that would otherwise cancel the stranded command
+		-- are protected. Only the insecure paths can defer, so move people off it.
 		if not isNewProfile and fromSchema < 4 and db.mode == "secure" then
 			db.mode = "event"
 			Print("switched to |cffffffffevent|r mode.")
@@ -865,9 +1094,13 @@ f:SetScript("OnEvent", function(_, event, arg1)
 		db.schema = DEFAULTS.schema
 
 	elseif event == "PLAYER_ENTERING_WORLD" then
-
+		-- Safety net. If the gate below somehow missed an event we would never
+		-- initialise at all, and nothing would work until the user poked the UI.
 		C_Timer.After(1, Initialise)
 
+		-- A loading screen is exactly how a summon interrupts a flight. Check
+		-- now, and again shortly after, because the player's state is not
+		-- necessarily settled the instant the screen clears.
 		Reconcile(event)
 		C_Timer.After(2, function() Reconcile(event .. " (delayed)") end)
 
@@ -892,13 +1125,16 @@ f:SetScript("OnEvent", function(_, event, arg1)
 		end
 
 	elseif RECONCILE_EVENTS[event] then
-
+		-- UNIT_EXITED_VEHICLE carries a unit; the rest carry nothing useful.
 		if event ~= "UNIT_EXITED_VEHICLE" or arg1 == "player" then
 			Reconcile(event)
 		end
 
 	elseif event == "UPDATE_BINDINGS" then
-
+		-- Rebuilding while our own bindings are applied would read them back as
+		-- the originals, so only rebuild in a clean window -- and never before
+		-- the initial gate, since UPDATE_BINDINGS fires repeatedly during login
+		-- with a half-loaded set.
 		if bindingsReady and not AnyOverrideLive() then
 			BuildPlan()
 			if secureActive then

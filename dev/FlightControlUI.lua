@@ -1,3 +1,14 @@
+-- FlightControlUI -- pick the flight layout by hand instead of deriving it.
+--
+-- Two modes, mirroring the core:
+--   learn  -- the cluster is derived from the player's bindings; rows are read-only
+--   custom -- the player assigns each flight action a key themselves
+--
+-- Key capture goes through Blizzard's own binding helpers (GetConvertedKeyOrButton,
+-- IsKeyPressIgnoredForBinding, CreateKeyChordStringUsingMetaKeyState) rather than
+-- hand-rolled modifier composition, so chords come out in the same canonical form
+-- the binding system uses.
+
 local ADDON_NAME, FC = ...
 
 local ROW_HEIGHT = 30
@@ -7,6 +18,10 @@ local frame
 local rows = {}
 local listeningRow
 
+--------------------------------------------------------------------------------
+-- Key capture
+--------------------------------------------------------------------------------
+
 local listenTimer
 
 local function StopListening()
@@ -15,6 +30,9 @@ local function StopListening()
     listeningRow = nil
     listenTimer = nil
 
+    -- Both, always. While either is left set the button eats every keypress in
+    -- the game, which is how trying to walk with the window open ended up
+    -- rewriting the layout one movement key at a time.
     row.KeyButton:SetPropagateKeyboardInput(true)
     row.KeyButton:EnableKeyboard(false)
     FlightControlUI:Refresh()
@@ -28,6 +46,8 @@ local function StartListening(row)
     row.KeyButton:EnableKeyboard(true)
     row.KeyButton:SetPropagateKeyboardInput(false)
 
+    -- Hard backstop. Capture is the only state in which this addon holds the
+    -- keyboard, so it must not be possible to get stuck in it.
     local token = {}
     listenTimer = token
     C_Timer.After(6, function()
@@ -39,7 +59,8 @@ local function StartListening(row)
 end
 
 local function OnKeyCaptured(row, rawKey)
-
+    -- Not the listening row: hand the key straight back to the game. Without
+    -- this a stale keyboard-enabled button silently swallows input.
     if listeningRow ~= row then
         row.KeyButton:SetPropagateKeyboardInput(true)
         row.KeyButton:EnableKeyboard(false)
@@ -49,7 +70,7 @@ local function OnKeyCaptured(row, rawKey)
     local key = GetConvertedKeyOrButton(rawKey)
 
     if IsKeyPressIgnoredForBinding(key) then
-        return
+        return -- a bare modifier; wait for the real key
     end
 
     if key == "ESCAPE" then
@@ -66,6 +87,10 @@ local function OnKeyCaptured(row, rawKey)
     FC.SetLayoutKey(row.action, CreateKeyChordStringUsingMetaKeyState(key))
     StopListening()
 end
+
+--------------------------------------------------------------------------------
+-- Construction
+--------------------------------------------------------------------------------
 
 local function Tooltip(widget, title, body)
 	widget:HookScript("OnEnter", function(self)
@@ -120,7 +145,7 @@ local function Build()
 	frame:Hide()
 
 	frame.TitleText:SetText("FlightControl")
-	tinsert(UISpecialFrames, "FlightControlOptionsFrame")
+	tinsert(UISpecialFrames, "FlightControlOptionsFrame") -- ESC closes it
 
 	local intro = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 	intro:SetPoint("TOPLEFT", 18, -32)
@@ -137,7 +162,8 @@ local function Build()
 		if self:GetChecked() then
 			FC.ClearCustom()
 		else
-
+			-- Declines if there is no cluster to copy; re-tick so the box never
+			-- shows a custom layout that was not actually created.
 			if FC.BeginCustom() then
 				FC.Refresh()
 			else
@@ -219,6 +245,10 @@ local function Build()
 	frame.Close2:SetScript("OnClick", function() frame:Hide() end)
 end
 
+--------------------------------------------------------------------------------
+-- Refresh
+--------------------------------------------------------------------------------
+
 FlightControlUI = {}
 
 function FlightControlUI:Refresh()
@@ -227,6 +257,8 @@ function FlightControlUI:Refresh()
 	local custom = FC.IsCustom()
 	frame.Learn:SetChecked(not custom)
 
+	-- Inverting is a derivation setting. A pinned layout already says outright
+	-- which key does which, so there is nothing left for it to flip.
 	frame.Invert:SetChecked(FC.GetInvertPitch())
 	frame.Invert:SetEnabled(not custom)
 	frame.Invert.text:SetTextColor(custom and 0.5 or 1, custom and 0.5 or 0.82,
@@ -234,6 +266,7 @@ function FlightControlUI:Refresh()
 
 	frame.Source:SetText(FC.GetLayoutSource() or "")
 
+	-- action -> key, from whichever layout is in force
 	local assigned = {}
 	for _, entry in ipairs(FC.GetLayout()) do
 		assigned[entry.action] = entry.key
