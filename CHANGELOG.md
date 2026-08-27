@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.8
+
+Same behaviour as 1.0.7, reached a better way.
+
+- 1.0.7 kept the water fix working by checking several times a second for as long as you
+  were flying. It now waits to be told instead: a mount vanishing, a druid leaving Flight
+  Form, or the game reporting you can no longer glide. Nothing is checked on a timer while
+  you fly.
+- Druid Flight Form and evoker Soar are both covered explicitly. Druids are never mounted
+  and evokers fly by spell, so neither can be recognised by looking for a mount.
+
 ## 1.0.7
 
 - **Fixed: flying into water left the flight controls on.** Hitting water dismounts you
