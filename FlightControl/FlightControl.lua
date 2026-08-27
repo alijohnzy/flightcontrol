@@ -22,6 +22,7 @@ local DEFAULTS = {
 
 local db
 local bindingsReady = false
+local UpdateGroundWatch
 local Initialise
 local STATE_ID = "fcflight"
 
@@ -389,6 +390,7 @@ local function ApplyEventBindings(on)
 		end)
 	end
 	eventApplied = on
+	if UpdateGroundWatch then UpdateGroundWatch() end
 	Debug(on and "flight layout applied" or "flight layout cleared")
 end
 
@@ -430,12 +432,17 @@ local function ApplySwapBindings(on)
 		end)
 	end
 
+	if UpdateGroundWatch then UpdateGroundWatch() end
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
 end
 
 local function IsFlightState()
 	local isGliding = C_PlayerInfo.GetGlidingInfo()
-	return isGliding
+	if not isGliding then return false end
+
+	if not IsMounted() and not IsFlying() then return false end
+
+	return true
 end
 
 local function AnyOverrideLive()
@@ -490,6 +497,32 @@ local function Reconcile(reason)
 		end
 	end
 
+end
+
+local GROUND_CHECK_INTERVAL = 0.4
+
+local groundWatch = CreateFrame("Frame")
+groundWatch:Hide()
+
+local sinceGroundCheck = 0
+groundWatch:SetScript("OnUpdate", function(self, elapsed)
+	sinceGroundCheck = sinceGroundCheck + elapsed
+	if sinceGroundCheck < GROUND_CHECK_INTERVAL then return end
+	sinceGroundCheck = 0
+
+	if IsFlightState() then return end
+	Reconcile("no longer airborne")
+end)
+
+function UpdateGroundWatch()
+	local applied = eventApplied or (db and db.swapRestore ~= nil)
+
+	if applied and db and db.enabled and db.mode ~= "secure" then
+		groundWatch:Show()
+	else
+		groundWatch:Hide()
+		sinceGroundCheck = 0
+	end
 end
 
 local RECONCILE_EVENTS = {

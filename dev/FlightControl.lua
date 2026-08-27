@@ -86,6 +86,7 @@ local DEFAULTS = {
 
 local db
 local bindingsReady = false
+local UpdateGroundWatch -- defined once Reconcile exists
 local Initialise
 local STATE_ID = "fcflight"
 
@@ -538,6 +539,7 @@ local function ApplyEventBindings(on)
 		end)
 	end
 	eventApplied = on
+	if UpdateGroundWatch then UpdateGroundWatch() end
 	Debug(on and "flight layout applied" or "flight layout cleared")
 end
 
@@ -593,6 +595,7 @@ local function ApplySwapBindings(on)
 		end)
 	end
 
+	if UpdateGroundWatch then UpdateGroundWatch() end
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
 end
 
@@ -605,7 +608,20 @@ end
 -- own Dragonriding tutorial uses isGliding for its take-off / land steps.
 local function IsFlightState()
 	local isGliding = C_PlayerInfo.GetGlidingInfo()
-	return isGliding
+	if not isGliding then return false end
+
+	-- The glide flag can lag behind reality. Flying into water dismounts you
+	-- with no event of any kind, and the flag has been seen still reading true
+	-- afterwards, which left the flight layout stuck on.
+	--
+	-- Being neither mounted nor airborne is unambiguous: the player is standing
+	-- or swimming, so the flag is stale and the layout must come off. Both halves
+	-- are needed. IsMounted alone would be wrong for druids, who skyride in
+	-- Flight Form without ever being mounted, and IsFlying alone would be wrong
+	-- for the moment a glide starts from the ground.
+	if not IsMounted() and not IsFlying() then return false end
+
+	return true
 end
 
 local function AnyOverrideLive()
@@ -670,6 +686,41 @@ local function Reconcile(reason)
 end
 
 -- Anything that can end a flight without PLAYER_IS_GLIDING_CHANGED firing.
+-- Some ways a flight ends produce no event at all. Flying into water dismounts
+-- you silently: no loading screen, no death, nothing that fires. Others fire an
+-- event before GetGlidingInfo has caught up, so a single check reads the old
+-- value and never looks again.
+--
+-- So while the layout is applied, watch. This only ever turns the layout OFF,
+-- never on, so it cannot fight the event path or switch on at an awkward moment,
+-- and the frame is hidden whenever nothing is applied, so it costs nothing on
+-- the ground. Secure mode is excluded: its state driver already re-evaluates.
+local GROUND_CHECK_INTERVAL = 0.4
+
+local groundWatch = CreateFrame("Frame")
+groundWatch:Hide()
+
+local sinceGroundCheck = 0
+groundWatch:SetScript("OnUpdate", function(self, elapsed)
+	sinceGroundCheck = sinceGroundCheck + elapsed
+	if sinceGroundCheck < GROUND_CHECK_INTERVAL then return end
+	sinceGroundCheck = 0
+
+	if IsFlightState() then return end
+	Reconcile("no longer airborne")
+end)
+
+function UpdateGroundWatch()
+	local applied = eventApplied or (db and db.swapRestore ~= nil)
+
+	if applied and db and db.enabled and db.mode ~= "secure" then
+		groundWatch:Show()
+	else
+		groundWatch:Hide()
+		sinceGroundCheck = 0
+	end
+end
+
 local RECONCILE_EVENTS = {
 	PLAYER_ENTERING_WORLD        = true, -- summon, hearth, teleport, zoning
 	PLAYER_CONTROL_GAINED        = true, -- released from taxi, cutscene, summon

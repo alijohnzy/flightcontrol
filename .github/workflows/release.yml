@@ -57,6 +57,13 @@ jobs:
           done
           echo "shipping files match dev/"
 
+      # Run the headless suite against the files that are about to ship, not
+      # against dev/, so stripping is covered as well as the logic.
+      - name: Test
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lua5.4
+          lua tools/test.lua build
+
       # Files are listed one by one rather than copying the folder, so nothing
       # can slip into a release by being dropped in the directory later.
       - name: Build the package

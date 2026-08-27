@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.7
+
+- **Fixed: flying into water left the flight controls on.** Hitting water dismounts you
+  without firing anything the addon could listen for, and the game can still report you as
+  gliding afterwards. While the flight layout is applied it is now checked several times a
+  second and taken off as soon as you are neither mounted nor airborne. The check only ever
+  turns the layout off, never on, so it cannot switch on at an odd moment, and it stops
+  running entirely once you are back on the ground.
+- Druid Flight Form is handled: you glide without being mounted, so being unmounted alone is
+  not treated as having landed.
+
 ## 1.0.6
 
 - **Fixed: the flight layout stayed on after being summoned mid-flight.** The keys only
