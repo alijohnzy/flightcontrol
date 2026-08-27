@@ -10,7 +10,7 @@ local DEFAULTS = {
 	conditional = "[flying,bonusbar:5]",
 	verbose = false,
 
-	heldPolicy = "defer",
+	heldPolicy = "auto",
 	schema = 4,
 
 	flightLayout = nil,
@@ -335,8 +335,12 @@ local function IsHeld(key)
 	return ok and down
 end
 
-local function ApplyOrDefer(key, apply)
-	if db and db.heldPolicy == "instant" then
+local function ApplyOrDefer(key, apply, entering)
+	local policy = db and db.heldPolicy or "auto"
+	local mayDefer =
+		policy == "defer" or (policy == "auto" and entering)
+
+	if not mayDefer then
 		deferred[key] = nil
 		apply()
 		return
@@ -394,7 +398,7 @@ local function ApplyEventBindings(on)
 		ApplyOrDefer(key, function()
 			SetOverrideBinding(eventOwner, true, key, wanted)
 			appliedKeys[key] = wanted and true or nil
-		end)
+		end, on)
 	end
 	eventApplied = on
 	Debug(on and "flight layout applied" or "flight layout cleared")
@@ -435,7 +439,7 @@ local function ApplySwapBindings(on)
 			if next(restore) == nil and db.swapRestore == restore then
 				db.swapRestore = nil
 			end
-		end)
+		end, on)
 	end
 
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
@@ -706,11 +710,12 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 		end
 
 	elseif cmd == "hold" then
-		if rest ~= "defer" and rest ~= "instant" then
+		if rest ~= "auto" and rest ~= "defer" and rest ~= "instant" then
 			Print("held-key policy is currently: " .. db.heldPolicy)
+			Print("  auto    -- wait on the way in, rebind straight away on the way out")
 			Print("  defer   -- a key you are holding keeps its old job until you let go")
-			Print("  instant -- rebind straight away, even mid-press")
-			Print("usage: /fcon hold defer|instant")
+			Print("  instant -- always rebind straight away, even mid-press")
+			Print("usage: /fcon hold auto|defer|instant")
 		else
 			db.heldPolicy = rest
 			Print("held-key policy = " .. db.heldPolicy)

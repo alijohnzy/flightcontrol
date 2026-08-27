@@ -163,6 +163,9 @@ local function state()
 	return #parts > 0 and table.concat(parts, " ") or "(none)"
 end
 
+-- exact key lookup: "SHIFT-W" must not answer a question about "W"
+local function boundTo(key) return applied[key] end
+
 local function check(name, wantApplied)
 	local isApplied = next(applied) ~= nil
 	if isApplied == wantApplied then
@@ -308,30 +311,35 @@ fire("PLAYER_MOUNT_DISPLAY_CHANGED")
 runTimers()
 check("nor can one while genuinely airborne", false)
 
--- Entering water while still holding the key you were flying with. The key
--- keeps its flight meaning until released, on purpose: rebinding a held key
--- strands the old command, and PitchUpStop is protected so nothing can stop it.
--- Deferring means one awkward keypress; rebinding means rotating forever.
+-- Holding the forward key across both boundaries. The two directions differ:
+-- going in strands MOVEFORWARD, which is a real command on the ground, so it
+-- waits. Coming out strands pitch, which the game drops, so it does not.
 world.held = {}
-takeOff()
-world.held["W"] = true
-world.gliding, world.mounted, world.flying = true, false, false
-fire("PLAYER_MOUNT_DISPLAY_CHANGED")
+world.gliding, world.mounted, world.flying = false, false, false
+fire("PLAYER_IS_GLIDING_CHANGED", false)
 runTimers()
 
-local onlyHeldKeyRemains = state() == "W=PITCHUP"
-if onlyHeldKeyRemains then
+world.held["W"] = true
+takeOff()
+local wDeferredIn = boundTo("W") == nil
+if wDeferredIn then
 	passed = passed + 1
-	print("  ok    water clears every key except the one being held")
+	print("  ok    taking off holding W waits, so MOVEFORWARD is not stranded")
 else
 	failed = failed + 1
-	print("  FAIL  water clears every key except the one being held")
+	print("  FAIL  taking off holding W should wait")
 	print("        " .. state())
 end
 
 world.held["W"] = false
 tick(0.5)
-check("releasing the held key clears it too", false)
+world.held["W"] = true      -- now flying with the layout on, and holding W
+world.gliding, world.mounted, world.flying = true, false, false
+fire("PLAYER_MOUNT_DISPLAY_CHANGED")
+runTimers()
+check("hitting water holding W clears every key including W", false)
+
+world.held = {}
 
 -- instant policy: the escape hatch, rebinds even mid-press
 world.held = {}

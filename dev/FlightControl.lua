@@ -66,14 +66,24 @@ local DEFAULTS = {
 	conditional = "[flying,bonusbar:5]",
 	verbose = false,
 
-	-- "defer"  : never rebind a key that is held; wait for the release.
-	-- "instant": rebind immediately and accept whatever the old command does.
+	-- What to do about a key that is held while the bindings change.
 	--
-	-- Deferring is safe but means a key held across the boundary keeps its
-	-- flight meaning until you let go, which is miserable if you swim holding
-	-- forward. Instant is only unsafe if the stranded command keeps running,
-	-- which was observed for MOVEFORWARD but has never been tested for pitch.
-	heldPolicy = "defer",
+	-- "auto"    : defer going in, rebind immediately coming out.
+	-- "defer"   : never rebind a held key either way.
+	-- "instant" : always rebind immediately.
+	--
+	-- Auto is not a hedge, it is the shape of the problem. The two directions
+	-- strand different commands and only one of them survives.
+	--
+	-- Going in, the key is on MOVEFORWARD. That is a perfectly good command on
+	-- the ground, so if its stop never runs you keep running after you land.
+	-- Confirmed in play, and the reason deferring exists at all.
+	--
+	-- Coming out, the key is on PITCHUP or PITCHDOWN, which mean nothing once
+	-- you are not flying. The game drops them, so rebinding mid-press costs
+	-- nothing. Also confirmed in play: deferring here was what left a player
+	-- rotating in water because they were swimming with forward held.
+	heldPolicy = "auto",
 	schema = 4,
 
 	-- nil = derive the movement cluster from the player's own bindings on every
@@ -483,8 +493,13 @@ local function IsHeld(key)
 	return ok and down
 end
 
-local function ApplyOrDefer(key, apply)
-	if db and db.heldPolicy == "instant" then
+-- entering is true when the flight layout is going on, false when coming off.
+local function ApplyOrDefer(key, apply, entering)
+	local policy = db and db.heldPolicy or "auto"
+	local mayDefer =
+		policy == "defer" or (policy == "auto" and entering)
+
+	if not mayDefer then
 		deferred[key] = nil
 		apply()
 		return
@@ -550,7 +565,7 @@ local function ApplyEventBindings(on)
 		ApplyOrDefer(key, function()
 			SetOverrideBinding(eventOwner, true, key, wanted)
 			appliedKeys[key] = wanted and true or nil
-		end)
+		end, on)
 	end
 	eventApplied = on
 	Debug(on and "flight layout applied" or "flight layout cleared")
@@ -605,7 +620,7 @@ local function ApplySwapBindings(on)
 			if next(restore) == nil and db.swapRestore == restore then
 				db.swapRestore = nil
 			end
-		end)
+		end, on)
 	end
 
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
@@ -930,11 +945,12 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 		end
 
 	elseif cmd == "hold" then
-		if rest ~= "defer" and rest ~= "instant" then
+		if rest ~= "auto" and rest ~= "defer" and rest ~= "instant" then
 			Print("held-key policy is currently: " .. db.heldPolicy)
+			Print("  auto    -- wait on the way in, rebind straight away on the way out")
 			Print("  defer   -- a key you are holding keeps its old job until you let go")
-			Print("  instant -- rebind straight away, even mid-press")
-			Print("usage: /fcon hold defer|instant")
+			Print("  instant -- always rebind straight away, even mid-press")
+			Print("usage: /fcon hold auto|defer|instant")
 		else
 			db.heldPolicy = rest
 			Print("held-key policy = " .. db.heldPolicy)
