@@ -9,6 +9,8 @@ local DEFAULTS = {
 
 	conditional = "[flying,bonusbar:5]",
 	verbose = false,
+
+	heldPolicy = "defer",
 	schema = 4,
 
 	flightLayout = nil,
@@ -334,6 +336,12 @@ local function IsHeld(key)
 end
 
 local function ApplyOrDefer(key, apply)
+	if db and db.heldPolicy == "instant" then
+		deferred[key] = nil
+		apply()
+		return
+	end
+
 	if IsHeld(key) then
 		deferred[key] = apply
 		heldWatcher:Show()
@@ -697,6 +705,17 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 			ShowLayout()
 		end
 
+	elseif cmd == "hold" then
+		if rest ~= "defer" and rest ~= "instant" then
+			Print("held-key policy is currently: " .. db.heldPolicy)
+			Print("  defer   -- a key you are holding keeps its old job until you let go")
+			Print("  instant -- rebind straight away, even mid-press")
+			Print("usage: /fcon hold defer|instant")
+		else
+			db.heldPolicy = rest
+			Print("held-key policy = " .. db.heldPolicy)
+		end
+
 	elseif cmd == "invert" then
 		db.invertPitch = not db.invertPitch
 		if FC.IsCustom() then
@@ -741,7 +760,7 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 	else
 		Print("commands: ui | probe | status | learn | layout | on | off")
 		Print("          mode secure|event|swap")
-		Print("          cond <conditional> | invert | displaced | refresh | verbose")
+		Print("          cond <conditional> | invert | hold | displaced | refresh | verbose")
 	end
 end
 

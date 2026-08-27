@@ -65,6 +65,15 @@ local DEFAULTS = {
 	-- to actually airborne, which is what the swap should follow.
 	conditional = "[flying,bonusbar:5]",
 	verbose = false,
+
+	-- "defer"  : never rebind a key that is held; wait for the release.
+	-- "instant": rebind immediately and accept whatever the old command does.
+	--
+	-- Deferring is safe but means a key held across the boundary keeps its
+	-- flight meaning until you let go, which is miserable if you swim holding
+	-- forward. Instant is only unsafe if the stranded command keeps running,
+	-- which was observed for MOVEFORWARD but has never been tested for pitch.
+	heldPolicy = "defer",
 	schema = 4,
 
 	-- nil = derive the movement cluster from the player's own bindings on every
@@ -475,6 +484,12 @@ local function IsHeld(key)
 end
 
 local function ApplyOrDefer(key, apply)
+	if db and db.heldPolicy == "instant" then
+		deferred[key] = nil
+		apply()
+		return
+	end
+
 	if IsHeld(key) then
 		deferred[key] = apply
 		heldWatcher:Show()
@@ -914,6 +929,17 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 			ShowLayout()
 		end
 
+	elseif cmd == "hold" then
+		if rest ~= "defer" and rest ~= "instant" then
+			Print("held-key policy is currently: " .. db.heldPolicy)
+			Print("  defer   -- a key you are holding keeps its old job until you let go")
+			Print("  instant -- rebind straight away, even mid-press")
+			Print("usage: /fcon hold defer|instant")
+		else
+			db.heldPolicy = rest
+			Print("held-key policy = " .. db.heldPolicy)
+		end
+
 	elseif cmd == "invert" then
 		db.invertPitch = not db.invertPitch
 		if FC.IsCustom() then
@@ -958,7 +984,7 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 	else
 		Print("commands: ui | probe | status | learn | layout | on | off")
 		Print("          mode secure|event|swap")
-		Print("          cond <conditional> | invert | displaced | refresh | verbose")
+		Print("          cond <conditional> | invert | hold | displaced | refresh | verbose")
 	end
 end
 

@@ -333,6 +333,18 @@ world.held["W"] = false
 tick(0.5)
 check("releasing the held key clears it too", false)
 
+-- instant policy: the escape hatch, rebinds even mid-press
+world.held = {}
+FC.GetDB().heldPolicy = "instant"
+takeOff()
+world.held["W"] = true
+world.gliding, world.mounted, world.flying = true, false, false
+fire("PLAYER_MOUNT_DISPLAY_CHANGED")
+runTimers()
+check("instant policy clears even the held key", false)
+FC.GetDB().heldPolicy = "defer"
+world.held = {}
+
 print()
 print(("%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
