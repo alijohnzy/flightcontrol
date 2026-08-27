@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.11
+
+- **Fixed: landing while holding a turn key left the camera spinning.** 1.0.9 started
+  putting a key back the instant a flight ended, even one you were still holding. Turning
+  was then left running with nothing able to stop it. A key is now only put back mid-press
+  when what it is doing would stop mattering anyway, which is true of pitch and of nothing
+  else. Flying into water while holding forward still reverts immediately.
+- **Fixed: pressing a modifier while holding a movement key was read as letting go**, so the
+  key was rebound while it was still under your finger. This affected anyone who uses a
+  modified binding in flight, such as strafe on CTRL.
+- Added `/fcon version`, and the version now appears in the options window footer and at the
+  top of `/fcon status`, so it is possible to tell what is actually loaded.
+
 ## 1.0.10
 
 - **Fixed: landing while holding forward left you running.** Holding forward and then

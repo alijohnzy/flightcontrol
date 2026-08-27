@@ -45,6 +45,9 @@ local CONDITIONAL_CANDIDATES = {
 	"[vehicleui]",
 }
 
+local ADDON_VERSION = C_AddOns and C_AddOns.GetAddOnMetadata
+	and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "unknown"
+
 local function Print(...)
 	print("|cff33ff99FlightControl|r:", ...)
 end
@@ -324,10 +327,24 @@ local function IsHeld(key)
 	return ok and down
 end
 
-local function ApplyOrDefer(key, apply, entering)
+local STRANDS_ON_GROUND = {
+	MOVEFORWARD = true, MOVEBACKWARD = true,
+	TURNLEFT = true,    TURNRIGHT = true,
+	STRAFELEFT = true,  STRAFERIGHT = true,
+}
+
+local function ApplyOrDefer(key, apply)
 	local policy = db and db.heldPolicy or "auto"
-	local mayDefer =
-		policy == "defer" or (policy == "auto" and entering)
+
+	local mayDefer
+	if policy == "instant" then
+		mayDefer = false
+	elseif policy == "defer" then
+		mayDefer = true
+	else
+
+		mayDefer = STRANDS_ON_GROUND[GetBindingAction(key) or ""] == true
+	end
 
 	if not mayDefer then
 		deferred[key] = nil
@@ -387,7 +404,7 @@ local function ApplyEventBindings(on)
 		ApplyOrDefer(key, function()
 			SetOverrideBinding(eventOwner, true, key, wanted)
 			appliedKeys[key] = wanted and true or nil
-		end, on)
+		end)
 	end
 	eventApplied = on
 	Debug(on and "flight layout applied" or "flight layout cleared")
@@ -428,7 +445,7 @@ local function ApplySwapBindings(on)
 			if next(restore) == nil and db.swapRestore == restore then
 				db.swapRestore = nil
 			end
-		end, on)
+		end)
 	end
 
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
@@ -559,6 +576,7 @@ local function Probe()
 end
 
 local function Status()
+	Print("version " .. ADDON_VERSION)
 	Print(("enabled=%s mode=%s conditional=%s swapDisplaced=%s")
 		:format(tostring(db.enabled), db.mode, db.conditional, tostring(db.swapDisplaced)))
 
@@ -698,6 +716,9 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 			ShowLayout()
 		end
 
+	elseif cmd == "version" or cmd == "ver" then
+		Print("version " .. ADDON_VERSION)
+
 	elseif cmd == "hold" then
 		if rest ~= "auto" and rest ~= "defer" and rest ~= "instant" then
 			Print("held-key policy is currently: " .. db.heldPolicy)
@@ -752,7 +773,7 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 		Status()
 
 	else
-		Print("commands: ui | probe | status | learn | layout | on | off")
+		Print("commands: ui | version | probe | status | learn | layout | on | off")
 		Print("          mode secure|event|swap")
 		Print("          cond <conditional> | invert | hold | displaced | refresh | verbose")
 	end
@@ -765,6 +786,7 @@ FC.FLIGHT_ACTIONS = {
 	{ action = "TURNRIGHT",  label = "Turn Right" },
 }
 
+function FC.GetVersion() return ADDON_VERSION end
 function FC.GetDB() return db end
 function FC.GetPlan() return plan end
 function FC.GetLayout() return ActiveLayout() end

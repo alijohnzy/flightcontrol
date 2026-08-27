@@ -68,7 +68,7 @@ local DEFAULTS = {
 
 	-- What to do about a key that is held while the bindings change.
 	--
-	-- "auto"    : defer going in, rebind immediately coming out.
+	-- "auto"    : defer only when the command being replaced would keep running.
 	-- "defer"   : never rebind a held key either way.
 	-- "instant" : always rebind immediately.
 	--
@@ -126,6 +126,11 @@ local CONDITIONAL_CANDIDATES = {
 	"[overridebar]",
 	"[vehicleui]",
 }
+
+-- Read from the TOC rather than kept in a constant, so it cannot drift from
+-- what was actually packaged.
+local ADDON_VERSION = C_AddOns and C_AddOns.GetAddOnMetadata
+	and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "unknown"
 
 local function Print(...)
 	print("|cff33ff99FlightControl|r:", ...)
@@ -476,26 +481,46 @@ end
 
 -- Physically down, modifiers ignored on purpose.
 --
--- An earlier version required the chord's modifiers to match exactly, so
--- IsHeld("W") went false the moment you pressed CTRL even though W was still
--- under your finger. The deferral concluded you had let go and rebound W
--- mid-press, which stranded MOVEFORWARD and left you running after landing.
--- Anyone with a modified binding they use in flight hit this: hold forward,
--- press the modifier to strafe, and the key is rebound underneath you.
+-- Requiring a chord's modifiers to match exactly meant IsHeld("W") went false
+-- the moment CTRL went down, even with W still under your finger. The deferral
+-- then rebound W mid-press and stranded whatever it was running. Anyone with a
+-- modified binding they use in flight hits that.
 --
--- What matters is whether the physical key is down, because that is what
--- decides where its key-up will be delivered. Being conservative here only
--- means waiting slightly longer before rebinding, which is harmless.
+-- What decides where a key-up lands is whether the physical key is down, so
+-- that is the only question asked. Waiting longer than strictly necessary is
+-- harmless; rebinding too early is not.
 local function IsHeld(key)
 	local ok, down = pcall(IsKeyDown, StripModifiers(key))
 	return ok and down
 end
 
--- entering is true when the flight layout is going on, false when coming off.
-local function ApplyOrDefer(key, apply, entering)
+-- Whether leaving this command running would still do something once the
+-- player is back on the ground. That, not which way the transition is going,
+-- decides whether a held key may be rebound underneath them.
+--
+-- All of these keep going once stranded: MOVEFORWARD runs you off, TURNLEFT
+-- spins the camera. Pitch is deliberately absent, because the game drops it
+-- the moment you stop flying, so rebinding it mid-press costs nothing. Both
+-- halves confirmed in play.
+local STRANDS_ON_GROUND = {
+	MOVEFORWARD = true, MOVEBACKWARD = true,
+	TURNLEFT = true,    TURNRIGHT = true,
+	STRAFELEFT = true,  STRAFERIGHT = true,
+}
+
+local function ApplyOrDefer(key, apply)
 	local policy = db and db.heldPolicy or "auto"
-	local mayDefer =
-		policy == "defer" or (policy == "auto" and entering)
+
+	local mayDefer
+	if policy == "instant" then
+		mayDefer = false
+	elseif policy == "defer" then
+		mayDefer = true
+	else
+		-- Whatever the key does right now is what gets stranded if it is
+		-- rebound while held.
+		mayDefer = STRANDS_ON_GROUND[GetBindingAction(key) or ""] == true
+	end
 
 	if not mayDefer then
 		deferred[key] = nil
@@ -563,7 +588,7 @@ local function ApplyEventBindings(on)
 		ApplyOrDefer(key, function()
 			SetOverrideBinding(eventOwner, true, key, wanted)
 			appliedKeys[key] = wanted and true or nil
-		end, on)
+		end)
 	end
 	eventApplied = on
 	Debug(on and "flight layout applied" or "flight layout cleared")
@@ -618,7 +643,7 @@ local function ApplySwapBindings(on)
 			if next(restore) == nil and db.swapRestore == restore then
 				db.swapRestore = nil
 			end
-		end, on)
+		end)
 	end
 
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
@@ -799,6 +824,7 @@ end
 --------------------------------------------------------------------------------
 
 local function Status()
+	Print("version " .. ADDON_VERSION)
 	Print(("enabled=%s mode=%s conditional=%s swapDisplaced=%s")
 		:format(tostring(db.enabled), db.mode, db.conditional, tostring(db.swapDisplaced)))
 
@@ -942,6 +968,9 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 			ShowLayout()
 		end
 
+	elseif cmd == "version" or cmd == "ver" then
+		Print("version " .. ADDON_VERSION)
+
 	elseif cmd == "hold" then
 		if rest ~= "auto" and rest ~= "defer" and rest ~= "instant" then
 			Print("held-key policy is currently: " .. db.heldPolicy)
@@ -996,7 +1025,7 @@ SlashCmdList.FLIGHTCONTROL = function(msg)
 		Status()
 
 	else
-		Print("commands: ui | probe | status | learn | layout | on | off")
+		Print("commands: ui | version | probe | status | learn | layout | on | off")
 		Print("          mode secure|event|swap")
 		Print("          cond <conditional> | invert | hold | displaced | refresh | verbose")
 	end
@@ -1013,6 +1042,7 @@ FC.FLIGHT_ACTIONS = {
 	{ action = "TURNRIGHT",  label = "Turn Right" },
 }
 
+function FC.GetVersion() return ADDON_VERSION end
 function FC.GetDB() return db end
 function FC.GetPlan() return plan end
 function FC.GetLayout() return ActiveLayout() end

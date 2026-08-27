@@ -238,6 +238,12 @@ local function Build()
 		.. "while the layout is being worked out automatically -- a layout you set by hand "
 		.. "already says which key does what.")
 
+	-- Footer version, so what is actually loaded can be read off the window
+	-- rather than guessed at from what was last released.
+	frame.Version = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	frame.Version:SetPoint("BOTTOM", frame, "BOTTOM", 0, 22)
+	frame.Version:SetText("v" .. (FC.GetVersion and FC.GetVersion() or "?"))
+
 	frame.Close2 = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	frame.Close2:SetSize(100, 22)
 	frame.Close2:SetPoint("BOTTOMRIGHT", -18, 16)

@@ -23,6 +23,7 @@ local BINDINGS = {
 	PITCHUP = { "SHIFT-W" }, PITCHDOWN = { "SHIFT-S" }, JUMP = { "SPACE" },
 }
 
+local applied = {}
 local keyToAction = {}
 local function reindex()
 	keyToAction = {}
@@ -37,7 +38,9 @@ reindex()
 --------------------------------------------------------------------------------
 
 function GetBindingKey(a) local k = BINDINGS[a]; if not k then return nil end; return k[1], k[2] end
-function GetBindingAction(k) return keyToAction[k] or "" end
+-- The real GetBindingAction reads through the override layer, so an applied
+-- override has to answer here too: that is what the deferral inspects.
+function GetBindingAction(k) return applied[k] or keyToAction[k] or "" end
 function GetBindingText(k) return k end
 function IsMounted() return world.mounted end
 function IsFlying() return world.flying end
@@ -66,6 +69,9 @@ C_PlayerInfo = { GetGlidingInfo = function() return world.gliding, true, 0 end }
 C_ActionBar = setmetatable({}, { __index = function() return function() return 0 end end })
 C_KeyBindings = { GetTurnStrafeStyle = function() return 2 end }
 SlashCmdList = {}
+C_AddOns = { GetAddOnMetadata = function(_, field)
+	return field == "Version" and "TEST-VERSION" or nil
+end }
 
 local timers = {}
 C_Timer = { After = function(_, fn) table.insert(timers, fn) end }
@@ -77,7 +83,6 @@ end
 local watchers = {}
 EventUtil = { ContinueAfterAllEvents = function(cb) table.insert(watchers, cb) end }
 
-local applied = {}
 function SetOverrideBinding(_, _, key, action)
 	if action then applied[key] = action else applied[key] = nil end
 end
@@ -337,48 +342,14 @@ world.held["W"] = true      -- now flying with the layout on, and holding W
 world.gliding, world.mounted, world.flying = true, false, false
 fire("PLAYER_MOUNT_DISPLAY_CHANGED")
 runTimers()
-check("hitting water holding W clears every key including W", false)
-
-world.held = {}
-
--- Pressing a modifier while still holding forward must not look like a release.
--- Anyone with strafe on CTRL-A does this constantly in flight.
-world.held, world.ctrl = {}, false
-world.gliding, world.mounted, world.flying = false, false, false
-fire("PLAYER_IS_GLIDING_CHANGED", false)
-runTimers()
-
-world.held["W"] = true
-takeOff()
 if boundTo("W") == nil then
 	passed = passed + 1
-	print("  ok    take off holding W defers W")
+	print("  ok    hitting water holding W releases W itself")
 else
 	failed = failed + 1
-	print("  FAIL  take off holding W should defer W")
+	print("  FAIL  hitting water holding W left W on " .. tostring(boundTo("W")))
 end
 
-world.ctrl = true          -- reaching for CTRL-A to strafe, W still down
-tick(0.5)
-if boundTo("W") == nil then
-	passed = passed + 1
-	print("  ok    pressing CTRL while holding W does not rebind W")
-else
-	failed = failed + 1
-	print("  FAIL  pressing CTRL while holding W rebound it mid-press")
-	print("        " .. state())
-end
-
-world.ctrl = false
-world.held["W"] = false    -- an actual release
-tick(0.5)
-if boundTo("W") ~= nil then
-	passed = passed + 1
-	print("  ok    a real release rebinds W")
-else
-	failed = failed + 1
-	print("  FAIL  a real release should rebind W")
-end
 world.held = {}
 
 -- instant policy: the escape hatch, rebinds even mid-press
@@ -390,7 +361,72 @@ world.gliding, world.mounted, world.flying = true, false, false
 fire("PLAYER_MOUNT_DISPLAY_CHANGED")
 runTimers()
 check("instant policy clears even the held key", false)
-FC.GetDB().heldPolicy = "defer"
+FC.GetDB().heldPolicy = "auto"
+world.held = {}
+
+-- the version has to come from the TOC, not a constant that can drift
+if FC.GetVersion() == "TEST-VERSION" then
+	passed = passed + 1
+	print("  ok    version is read from the addon metadata")
+else
+	failed = failed + 1
+	print("  FAIL  version reads " .. tostring(FC.GetVersion()))
+end
+
+-- What would be stranded decides, not the direction of travel.
+FC.GetDB().heldPolicy = "auto"
+world.held, world.ctrl, world.shift = {}, false, false
+world.gliding, world.mounted, world.flying = false, false, false
+fire("PLAYER_IS_GLIDING_CHANGED", false); runTimers()
+
+takeOff()
+world.held["A"] = true            -- turning in flight: A is TURNLEFT
+world.gliding, world.mounted, world.flying = false, false, false
+fire("PLAYER_IS_GLIDING_CHANGED", false); runTimers()
+if boundTo("A") == "TURNLEFT" then
+	passed = passed + 1
+	print("  ok    landing on a held turn key waits, so the camera cannot spin")
+else
+	failed = failed + 1
+	print("  FAIL  landing on a held turn key rebound it: " .. tostring(boundTo("A")))
+end
+world.held["A"] = false; tick(0.5)
+check("releasing the turn key then clears it", false)
+
+takeOff()
+world.held["W"] = true            -- W is PITCHUP in flight, dropped on the ground
+world.gliding, world.mounted, world.flying = true, false, false
+fire("PLAYER_MOUNT_DISPLAY_CHANGED"); runTimers()
+if boundTo("W") == nil then
+	passed = passed + 1
+	print("  ok    water on a held pitch key still reverts immediately")
+else
+	failed = failed + 1
+	print("  FAIL  water on a held pitch key did not revert")
+end
+world.held = {}
+
+-- a modifier going down is not a release
+world.gliding, world.mounted, world.flying = false, false, false
+fire("PLAYER_IS_GLIDING_CHANGED", false); runTimers()
+world.held["W"] = true
+takeOff()
+world.ctrl = true; tick(0.5)
+if boundTo("W") == nil then
+	passed = passed + 1
+	print("  ok    pressing CTRL while holding W does not rebind W")
+else
+	failed = failed + 1
+	print("  FAIL  pressing CTRL while holding W rebound it mid-press")
+end
+world.ctrl = false; world.held["W"] = false; tick(0.5)
+if boundTo("W") ~= nil then
+	passed = passed + 1
+	print("  ok    a real release rebinds W")
+else
+	failed = failed + 1
+	print("  FAIL  a real release should rebind W")
+end
 world.held = {}
 
 print()
