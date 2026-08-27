@@ -22,7 +22,6 @@ local DEFAULTS = {
 
 local db
 local bindingsReady = false
-local UpdateGroundWatch
 local Initialise
 local STATE_ID = "fcflight"
 
@@ -390,7 +389,6 @@ local function ApplyEventBindings(on)
 		end)
 	end
 	eventApplied = on
-	if UpdateGroundWatch then UpdateGroundWatch() end
 	Debug(on and "flight layout applied" or "flight layout cleared")
 end
 
@@ -432,7 +430,6 @@ local function ApplySwapBindings(on)
 		end)
 	end
 
-	if UpdateGroundWatch then UpdateGroundWatch() end
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
 end
 
@@ -443,6 +440,7 @@ local function IsFlightState()
 	if not IsMounted() and not IsFlying() then return false end
 
 	return true
+
 end
 
 local function AnyOverrideLive()
@@ -499,30 +497,9 @@ local function Reconcile(reason)
 
 end
 
-local GROUND_CHECK_INTERVAL = 0.4
-
-local groundWatch = CreateFrame("Frame")
-groundWatch:Hide()
-
-local sinceGroundCheck = 0
-groundWatch:SetScript("OnUpdate", function(self, elapsed)
-	sinceGroundCheck = sinceGroundCheck + elapsed
-	if sinceGroundCheck < GROUND_CHECK_INTERVAL then return end
-	sinceGroundCheck = 0
-
-	if IsFlightState() then return end
-	Reconcile("no longer airborne")
-end)
-
-function UpdateGroundWatch()
-	local applied = eventApplied or (db and db.swapRestore ~= nil)
-
-	if applied and db and db.enabled and db.mode ~= "secure" then
-		groundWatch:Show()
-	else
-		groundWatch:Hide()
-		sinceGroundCheck = 0
-	end
+local function ReconcileSoon(reason)
+	Reconcile(reason)
+	C_Timer.After(0.2, function() Reconcile(reason .. " (settled)") end)
 end
 
 local RECONCILE_EVENTS = {
@@ -531,9 +508,13 @@ local RECONCILE_EVENTS = {
 	PLAYER_CONTROL_LOST          = true,
 	PLAYER_UNGHOST               = true,
 	PLAYER_ALIVE                 = true,
+
 	PLAYER_MOUNT_DISPLAY_CHANGED = true,
+	UPDATE_SHAPESHIFT_FORM       = true,
+	UNIT_FORM_CHANGED            = true,
 	UNIT_EXITED_VEHICLE          = true,
 	ZONE_CHANGED_NEW_AREA        = true,
+
 	PLAYER_CAN_GLIDE_CHANGED     = true,
 }
 
@@ -901,8 +882,7 @@ f:SetScript("OnEvent", function(_, event, arg1)
 
 		C_Timer.After(1, Initialise)
 
-		Reconcile(event)
-		C_Timer.After(2, function() Reconcile(event .. " (delayed)") end)
+		ReconcileSoon(event)
 
 	elseif event == "PLAYER_IS_GLIDING_CHANGED" then
 		local on = arg1 and true or false
@@ -926,8 +906,9 @@ f:SetScript("OnEvent", function(_, event, arg1)
 
 	elseif RECONCILE_EVENTS[event] then
 
-		if event ~= "UNIT_EXITED_VEHICLE" or arg1 == "player" then
-			Reconcile(event)
+		local unitScoped = (event == "UNIT_EXITED_VEHICLE" or event == "UNIT_FORM_CHANGED")
+		if not unitScoped or arg1 == "player" then
+			ReconcileSoon(event)
 		end
 
 	elseif event == "UPDATE_BINDINGS" then

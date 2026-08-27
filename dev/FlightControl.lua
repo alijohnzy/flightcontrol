@@ -86,7 +86,6 @@ local DEFAULTS = {
 
 local db
 local bindingsReady = false
-local UpdateGroundWatch -- defined once Reconcile exists
 local Initialise
 local STATE_ID = "fcflight"
 
@@ -539,7 +538,6 @@ local function ApplyEventBindings(on)
 		end)
 	end
 	eventApplied = on
-	if UpdateGroundWatch then UpdateGroundWatch() end
 	Debug(on and "flight layout applied" or "flight layout cleared")
 end
 
@@ -595,7 +593,6 @@ local function ApplySwapBindings(on)
 		end)
 	end
 
-	if UpdateGroundWatch then UpdateGroundWatch() end
 	Debug(on and "real bindings swapped to flight layout" or "real bindings restored")
 end
 
@@ -622,6 +619,10 @@ local function IsFlightState()
 	if not IsMounted() and not IsFlying() then return false end
 
 	return true
+	-- If this ever reads false too eagerly, say during the instant a glide
+	-- starts, the deferred re-check in ReconcileSoon puts the layout back
+	-- 0.2s later, because Reconcile applies the current state rather than
+	-- only ever clearing.
 end
 
 local function AnyOverrideLive()
@@ -686,39 +687,12 @@ local function Reconcile(reason)
 end
 
 -- Anything that can end a flight without PLAYER_IS_GLIDING_CHANGED firing.
--- Some ways a flight ends produce no event at all. Flying into water dismounts
--- you silently: no loading screen, no death, nothing that fires. Others fire an
--- event before GetGlidingInfo has caught up, so a single check reads the old
--- value and never looks again.
---
--- So while the layout is applied, watch. This only ever turns the layout OFF,
--- never on, so it cannot fight the event path or switch on at an awkward moment,
--- and the frame is hidden whenever nothing is applied, so it costs nothing on
--- the ground. Secure mode is excluded: its state driver already re-evaluates.
-local GROUND_CHECK_INTERVAL = 0.4
-
-local groundWatch = CreateFrame("Frame")
-groundWatch:Hide()
-
-local sinceGroundCheck = 0
-groundWatch:SetScript("OnUpdate", function(self, elapsed)
-	sinceGroundCheck = sinceGroundCheck + elapsed
-	if sinceGroundCheck < GROUND_CHECK_INTERVAL then return end
-	sinceGroundCheck = 0
-
-	if IsFlightState() then return end
-	Reconcile("no longer airborne")
-end)
-
-function UpdateGroundWatch()
-	local applied = eventApplied or (db and db.swapRestore ~= nil)
-
-	if applied and db and db.enabled and db.mode ~= "secure" then
-		groundWatch:Show()
-	else
-		groundWatch:Hide()
-		sinceGroundCheck = 0
-	end
+-- One deferred re-check per event. Some of these arrive a moment before the
+-- game's own state catches up, so a single immediate read can see the old
+-- value. This is one extra call, not a repeating timer.
+local function ReconcileSoon(reason)
+	Reconcile(reason)
+	C_Timer.After(0.2, function() Reconcile(reason .. " (settled)") end)
 end
 
 local RECONCILE_EVENTS = {
@@ -727,10 +701,21 @@ local RECONCILE_EVENTS = {
 	PLAYER_CONTROL_LOST          = true,
 	PLAYER_UNGHOST               = true, -- died mid-flight
 	PLAYER_ALIVE                 = true,
-	PLAYER_MOUNT_DISPLAY_CHANGED = true, -- dismounted by anything at all
+	-- Three things can carry you: a mount, a druid's Flight Form, and an
+	-- evoker's Soar. A mount going away fires the first of these; a druid
+	-- leaving form fires the other two, since druids never mount at all.
+	-- Soar goes through the skyriding system proper, confirmed in play, so it
+	-- is covered by PLAYER_CAN_GLIDE_CHANGED below regardless of whether the
+	-- game counts it as a mount. These are the specific signals; that is the
+	-- general one.
+	PLAYER_MOUNT_DISPLAY_CHANGED = true,
+	UPDATE_SHAPESHIFT_FORM       = true,
+	UNIT_FORM_CHANGED            = true,
 	UNIT_EXITED_VEHICLE          = true,
 	ZONE_CHANGED_NEW_AREA        = true,
-	PLAYER_CAN_GLIDE_CHANGED     = true, -- cannot glide implies not gliding
+	-- Carrier-agnostic: whatever was holding you up, losing the ability to glide
+	-- means the flight is over. This is the one that covers evoker Soar.
+	PLAYER_CAN_GLIDE_CHANGED     = true,
 }
 
 --------------------------------------------------------------------------------
@@ -1152,8 +1137,7 @@ f:SetScript("OnEvent", function(_, event, arg1)
 		-- A loading screen is exactly how a summon interrupts a flight. Check
 		-- now, and again shortly after, because the player's state is not
 		-- necessarily settled the instant the screen clears.
-		Reconcile(event)
-		C_Timer.After(2, function() Reconcile(event .. " (delayed)") end)
+		ReconcileSoon(event)
 
 	elseif event == "PLAYER_IS_GLIDING_CHANGED" then
 		local on = arg1 and true or false
@@ -1177,8 +1161,9 @@ f:SetScript("OnEvent", function(_, event, arg1)
 
 	elseif RECONCILE_EVENTS[event] then
 		-- UNIT_EXITED_VEHICLE carries a unit; the rest carry nothing useful.
-		if event ~= "UNIT_EXITED_VEHICLE" or arg1 == "player" then
-			Reconcile(event)
+		local unitScoped = (event == "UNIT_EXITED_VEHICLE" or event == "UNIT_FORM_CHANGED")
+		if not unitScoped or arg1 == "player" then
+			ReconcileSoon(event)
 		end
 
 	elseif event == "UPDATE_BINDINGS" then

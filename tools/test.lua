@@ -89,6 +89,9 @@ function CreateFrame(_, name, _, template)
 	local f
 	f = setmetatable({
 		attrs = attrs, scripts = scripts, name = name, template = template,
+		registered = {},
+		RegisterEvent = function(x, e) x.registered[e] = true end,
+		UnregisterEvent = function(x, e) x.registered[e] = nil end,
 		SetAttribute = function(_, k, v) attrs[k] = v end,
 		GetAttribute = function(_, k) return attrs[k] end,
 		SetScript = function(_, w, fn) scripts[w] = fn end,
@@ -130,6 +133,17 @@ local function boot()
 end
 boot()
 
+-- Dispatch to every frame that registered the event, as the game does. Some
+-- events are only registered while the layout is applied, so this has to be
+-- driven by the registrations rather than by one known frame.
+local function fire(event, ...)
+	for _, f in ipairs(frames) do
+		if rawget(f, "registered") and f.registered[event] and rawget(f.scripts, "OnEvent") then
+			f.scripts.OnEvent(f, event, ...)
+		end
+	end
+end
+
 local function tick(seconds)
 	for _ = 1, math.ceil(seconds / 0.1) do
 		for _, f in ipairs(frames) do f:Tick(0.1) end
@@ -164,7 +178,8 @@ end
 
 local function takeOff()
 	world.gliding, world.mounted, world.flying = true, true, true
-	eventFrame:Fire("PLAYER_IS_GLIDING_CHANGED", true)
+	fire("PLAYER_IS_GLIDING_CHANGED", true)
+	runTimers()
 end
 
 --------------------------------------------------------------------------------
@@ -179,57 +194,95 @@ takeOff()
 check("take off applies the layout", true)
 
 world.gliding = false
-eventFrame:Fire("PLAYER_IS_GLIDING_CHANGED", false)
+fire("PLAYER_IS_GLIDING_CHANGED", false)
+runTimers()
 check("landing clears it", false)
 
 -- summoned: yanked out of the air behind a loading screen, no gliding event
 takeOff()
 world.gliding, world.mounted, world.flying = false, false, false
-eventFrame:Fire("PLAYER_ENTERING_WORLD")
+fire("PLAYER_ENTERING_WORLD")
 runTimers()
 check("summoned mid-flight clears it", false)
 
 -- died mid-flight
 takeOff()
 world.gliding, world.mounted, world.flying = false, false, false
-eventFrame:Fire("PLAYER_UNGHOST")
+fire("PLAYER_UNGHOST")
+runTimers()
 check("dying mid-flight clears it", false)
 
--- water: dismounted with no event at all, and the glide flag goes stale
+-- water: dismounted, and the glide flag is still reading true
 takeOff()
-world.mounted, world.flying = false, false -- still gliding == true: stale
-check("water, before any check runs, still applied", true)
-tick(0.6)
-check("water clears it despite the stale glide flag", false)
+world.mounted, world.flying = false, false -- gliding stays true: stale
+fire("PLAYER_MOUNT_DISPLAY_CHANGED")
+runTimers()
+check("water clears it from the dismount event despite a stale glide flag", false)
 
--- druid flight form: gliding without ever being mounted
+-- water where the dismount event lands before the state settles
+takeOff()
+fire("PLAYER_MOUNT_DISPLAY_CHANGED")     -- fires while still reading airborne
+check("early dismount event does not clear a live flight", true)
+world.mounted, world.flying = false, false
+runTimers()                              -- the one deferred re-check
+check("the deferred re-check catches it", false)
+
+-- druid leaving Flight Form: no dismount, because druids never mounted
+takeOff()
+world.mounted = false          -- druids are never mounted
+world.gliding, world.flying = true, true
+fire("PLAYER_IS_GLIDING_CHANGED", true)
+check("druid in Flight Form counts as flying", true)
+world.gliding, world.flying = false, false
+fire("UPDATE_SHAPESHIFT_FORM")
+runTimers()
+check("druid leaving Flight Form clears it", false)
+
 world.gliding, world.mounted, world.flying = true, false, true
-eventFrame:Fire("PLAYER_IS_GLIDING_CHANGED", true)
-check("druid flight form still counts as flying", true)
-tick(1.0)
-check("druid flight form is not cleared by the watcher", true)
+fire("PLAYER_IS_GLIDING_CHANGED", true)
+world.gliding, world.flying = false, false
+fire("UNIT_FORM_CHANGED", "player")
+runTimers()
+check("UNIT_FORM_CHANGED for the player clears it", false)
 
--- the watcher must never switch the layout on by itself
-world.gliding, world.mounted, world.flying = false, false, false
-tick(0.6)
-check("watcher cleared it", false)
+world.gliding, world.mounted, world.flying = true, false, true
+fire("PLAYER_IS_GLIDING_CHANGED", true)
+fire("UNIT_FORM_CHANGED", "party1")
+runTimers()
+check("someone else changing form is ignored", true)
+
+-- evoker Soar: a third carrier. Whether the game counts it as a mount or a
+-- form is unknown, so the generic skyriding signal has to be what catches it.
+world.gliding, world.mounted, world.flying = true, false, true
+fire("PLAYER_IS_GLIDING_CHANGED", true)
+check("evoker soaring counts as flying", true)
+world.gliding, world.flying = false, false
+fire("PLAYER_CAN_GLIDE_CHANGED", false)
+runTimers()
+check("soar ending clears it via the carrier-agnostic signal", false)
+
+-- and again if Soar happens to be a mount after all
 world.gliding, world.mounted, world.flying = true, true, true
-tick(2.0)
-check("watcher never turns it on without an event", false)
+fire("PLAYER_IS_GLIDING_CHANGED", true)
+world.gliding, world.mounted, world.flying = true, false, false
+fire("PLAYER_MOUNT_DISPLAY_CHANGED")
+runTimers()
+check("soar ending clears it if it is mount-like", false)
 
 -- zoning while genuinely still airborne must not clear
-takeOff()
-eventFrame:Fire("ZONE_CHANGED_NEW_AREA")
+world.gliding, world.mounted, world.flying = true, true, true
+fire("ZONE_CHANGED_NEW_AREA")
 runTimers()
 check("zoning while still flying keeps it", true)
 
 -- combat defers rather than losing the change
 world.combat = true
 world.gliding, world.mounted, world.flying = false, false, false
-eventFrame:Fire("PLAYER_IS_GLIDING_CHANGED", false)
+fire("PLAYER_IS_GLIDING_CHANGED", false)
+runTimers()
 check("landing in combat cannot unbind yet", true)
 world.combat = false
-eventFrame:Fire("PLAYER_REGEN_ENABLED")
+fire("PLAYER_REGEN_ENABLED")
 check("leaving combat applies the deferred clear", false)
 
 print()
