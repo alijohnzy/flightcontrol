@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.9
+
+- **Fixed: flying into water while holding forward kept you in flight mode.** Forward stayed
+  on pitch, which in water rotates you instead of swimming, and letting go did not help.
+  A key you are holding is no longer left behind when the flight layout comes off.
+- Taking off while holding forward still waits for you to let go, which is what stops you
+  running on after you land. The two directions genuinely need different handling: coming
+  out of flight there is nothing to protect, going in there is.
+- Nothing except the game reporting an actual take-off can switch flight mode on now. It was
+  previously possible for it to turn itself on from a stray reading while you were swimming.
+- `/fcon hold auto|defer|instant` if you want to override any of that.
+
 ## 1.0.8
 
 Same behaviour as 1.0.7, reached a better way.
