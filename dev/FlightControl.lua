@@ -619,10 +619,6 @@ local function IsFlightState()
 	if not IsMounted() and not IsFlying() then return false end
 
 	return true
-	-- If this ever reads false too eagerly, say during the instant a glide
-	-- starts, the deferred re-check in ReconcileSoon puts the layout back
-	-- 0.2s later, because Reconcile applies the current state rather than
-	-- only ever clearing.
 end
 
 local function AnyOverrideLive()
@@ -666,20 +662,25 @@ end
 -- the player on the ground without it, and the flight layout stayed applied.
 -- So the truth is re-read from GetGlidingInfo whenever something might have
 -- moved the player, and the bindings are corrected if they disagree.
+-- Clear-only, deliberately. Turning the layout ON is the sole job of
+-- PLAYER_IS_GLIDING_CHANGED, which is the game telling us a glide has actually
+-- begun. Everything here is a second opinion about whether a glide has ENDED,
+-- and a second opinion should never be able to start flight mode: reported
+-- in play as the layout switching itself on while unmounted and swimming,
+-- which turned W and S into pitch and rotated the player in the water.
 local function Reconcile(reason)
 	if not db or not db.enabled or not bindingsReady then return end
-
-	local shouldBeOn = IsFlightState()
+	if IsFlightState() then return end
 
 	if db.mode == "event" then
-		if eventApplied ~= shouldBeOn then
-			Debug(("reconcile after %s -> %s"):format(reason, tostring(shouldBeOn)))
-			ApplyEventBindings(shouldBeOn)
+		if eventApplied then
+			Debug("reconcile after " .. reason .. ": no longer flying")
+			ApplyEventBindings(false)
 		end
 	elseif db.mode == "swap" then
-		if (db.swapRestore ~= nil) ~= shouldBeOn then
-			Debug(("reconcile after %s -> %s"):format(reason, tostring(shouldBeOn)))
-			ApplySwapBindings(shouldBeOn)
+		if db.swapRestore ~= nil then
+			Debug("reconcile after " .. reason .. ": no longer flying")
+			ApplySwapBindings(false)
 		end
 	end
 	-- secure mode needs nothing: its state driver re-evaluates the conditional

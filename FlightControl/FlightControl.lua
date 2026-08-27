@@ -440,7 +440,6 @@ local function IsFlightState()
 	if not IsMounted() and not IsFlying() then return false end
 
 	return true
-
 end
 
 local function AnyOverrideLive()
@@ -480,18 +479,17 @@ end
 
 local function Reconcile(reason)
 	if not db or not db.enabled or not bindingsReady then return end
-
-	local shouldBeOn = IsFlightState()
+	if IsFlightState() then return end
 
 	if db.mode == "event" then
-		if eventApplied ~= shouldBeOn then
-			Debug(("reconcile after %s -> %s"):format(reason, tostring(shouldBeOn)))
-			ApplyEventBindings(shouldBeOn)
+		if eventApplied then
+			Debug("reconcile after " .. reason .. ": no longer flying")
+			ApplyEventBindings(false)
 		end
 	elseif db.mode == "swap" then
-		if (db.swapRestore ~= nil) ~= shouldBeOn then
-			Debug(("reconcile after %s -> %s"):format(reason, tostring(shouldBeOn)))
-			ApplySwapBindings(shouldBeOn)
+		if db.swapRestore ~= nil then
+			Debug("reconcile after " .. reason .. ": no longer flying")
+			ApplySwapBindings(false)
 		end
 	end
 

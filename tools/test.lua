@@ -14,7 +14,7 @@ local SRC = WHICH == "build"
 -- World state the stubs report
 --------------------------------------------------------------------------------
 
-local world = { gliding = false, mounted = false, flying = false, combat = false }
+local world = { gliding = false, mounted = false, flying = false, combat = false, held = {} }
 
 local BINDINGS = {
 	MOVEFORWARD = { "W", "UP" }, MOVEBACKWARD = { "S", "DOWN" },
@@ -44,7 +44,7 @@ function IsFlying() return world.flying end
 function IsFlyableArea() return true end
 function IsAdvancedFlyableArea() return true end
 function InCombatLockdown() return world.combat end
-function IsKeyDown() return false end
+function IsKeyDown(k) return world.held[k] == true end
 function IsShiftKeyDown() return false end
 function IsControlKeyDown() return false end
 function IsAltKeyDown() return false end
@@ -270,12 +270,13 @@ runTimers()
 check("soar ending clears it if it is mount-like", false)
 
 -- zoning while genuinely still airborne must not clear
-world.gliding, world.mounted, world.flying = true, true, true
+takeOff()
 fire("ZONE_CHANGED_NEW_AREA")
 runTimers()
 check("zoning while still flying keeps it", true)
 
 -- combat defers rather than losing the change
+takeOff()
 world.combat = true
 world.gliding, world.mounted, world.flying = false, false, false
 fire("PLAYER_IS_GLIDING_CHANGED", false)
@@ -284,6 +285,53 @@ check("landing in combat cannot unbind yet", true)
 world.combat = false
 fire("PLAYER_REGEN_ENABLED")
 check("leaving combat applies the deferred clear", false)
+
+-- Unmounted and swimming. Whatever the game reports, nothing here may switch
+-- flight mode on: reported in play as W and S rotating the player in water.
+world.held = {}
+world.gliding, world.mounted, world.flying = false, false, false
+fire("PLAYER_IS_GLIDING_CHANGED", false)
+runTimers()
+check("start on the ground with nothing applied", false)
+
+world.gliding = true   -- the glide flag reading true while swimming
+for _, e in ipairs({ "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_CAN_GLIDE_CHANGED",
+                     "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD",
+                     "UPDATE_SHAPESHIFT_FORM", "PLAYER_CONTROL_GAINED" }) do
+	fire(e, "player")
+	runTimers()
+end
+check("no event can switch flight mode on while swimming", false)
+
+world.gliding, world.flying = true, true
+fire("PLAYER_MOUNT_DISPLAY_CHANGED")
+runTimers()
+check("nor can one while genuinely airborne", false)
+
+-- Entering water while still holding the key you were flying with. The key
+-- keeps its flight meaning until released, on purpose: rebinding a held key
+-- strands the old command, and PitchUpStop is protected so nothing can stop it.
+-- Deferring means one awkward keypress; rebinding means rotating forever.
+world.held = {}
+takeOff()
+world.held["W"] = true
+world.gliding, world.mounted, world.flying = true, false, false
+fire("PLAYER_MOUNT_DISPLAY_CHANGED")
+runTimers()
+
+local onlyHeldKeyRemains = state() == "W=PITCHUP"
+if onlyHeldKeyRemains then
+	passed = passed + 1
+	print("  ok    water clears every key except the one being held")
+else
+	failed = failed + 1
+	print("  FAIL  water clears every key except the one being held")
+	print("        " .. state())
+end
+
+world.held["W"] = false
+tick(0.5)
+check("releasing the held key clears it too", false)
 
 print()
 print(("%d passed, %d failed"):format(passed, failed))
