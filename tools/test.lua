@@ -45,8 +45,8 @@ function IsFlyableArea() return true end
 function IsAdvancedFlyableArea() return true end
 function InCombatLockdown() return world.combat end
 function IsKeyDown(k) return world.held[k] == true end
-function IsShiftKeyDown() return false end
-function IsControlKeyDown() return false end
+function IsShiftKeyDown() return world.shift == true end
+function IsControlKeyDown() return world.ctrl == true end
 function IsAltKeyDown() return false end
 function IsMetaKeyDown() return false end
 function SetBinding() end
@@ -339,6 +339,46 @@ fire("PLAYER_MOUNT_DISPLAY_CHANGED")
 runTimers()
 check("hitting water holding W clears every key including W", false)
 
+world.held = {}
+
+-- Pressing a modifier while still holding forward must not look like a release.
+-- Anyone with strafe on CTRL-A does this constantly in flight.
+world.held, world.ctrl = {}, false
+world.gliding, world.mounted, world.flying = false, false, false
+fire("PLAYER_IS_GLIDING_CHANGED", false)
+runTimers()
+
+world.held["W"] = true
+takeOff()
+if boundTo("W") == nil then
+	passed = passed + 1
+	print("  ok    take off holding W defers W")
+else
+	failed = failed + 1
+	print("  FAIL  take off holding W should defer W")
+end
+
+world.ctrl = true          -- reaching for CTRL-A to strafe, W still down
+tick(0.5)
+if boundTo("W") == nil then
+	passed = passed + 1
+	print("  ok    pressing CTRL while holding W does not rebind W")
+else
+	failed = failed + 1
+	print("  FAIL  pressing CTRL while holding W rebound it mid-press")
+	print("        " .. state())
+end
+
+world.ctrl = false
+world.held["W"] = false    -- an actual release
+tick(0.5)
+if boundTo("W") ~= nil then
+	passed = passed + 1
+	print("  ok    a real release rebinds W")
+else
+	failed = failed + 1
+	print("  FAIL  a real release should rebind W")
+end
 world.held = {}
 
 -- instant policy: the escape hatch, rebinds even mid-press

@@ -474,21 +474,19 @@ local function StripModifiers(key)
 	return key:match("([^%-]+)$") or key
 end
 
-local function ModifierDown(fn)
-	return type(fn) == "function" and not not fn()
-end
-
--- A chord counts as held only if its modifiers match exactly. Testing the base
--- key alone would report SHIFT-W as held whenever W is down and needlessly
--- defer half the plan.
+-- Physically down, modifiers ignored on purpose.
+--
+-- An earlier version required the chord's modifiers to match exactly, so
+-- IsHeld("W") went false the moment you pressed CTRL even though W was still
+-- under your finger. The deferral concluded you had let go and rebound W
+-- mid-press, which stranded MOVEFORWARD and left you running after landing.
+-- Anyone with a modified binding they use in flight hit this: hold forward,
+-- press the modifier to strafe, and the key is rebound underneath you.
+--
+-- What matters is whether the physical key is down, because that is what
+-- decides where its key-up will be delivered. Being conservative here only
+-- means waiting slightly longer before rebinding, which is harmless.
 local function IsHeld(key)
-	local upper = key:upper()
-
-	if (upper:find("SHIFT-", 1, true) ~= nil) ~= ModifierDown(IsShiftKeyDown) then return false end
-	if (upper:find("CTRL-", 1, true) ~= nil) ~= ModifierDown(IsControlKeyDown) then return false end
-	if (upper:find("ALT-", 1, true) ~= nil) ~= ModifierDown(IsAltKeyDown) then return false end
-	if (upper:find("META-", 1, true) ~= nil) ~= ModifierDown(IsMetaKeyDown) then return false end
-
 	local ok, down = pcall(IsKeyDown, StripModifiers(key))
 	return ok and down
 end

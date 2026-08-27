@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.10
+
+- **Fixed: landing while holding forward left you running.** Holding forward and then
+  pressing a modifier, such as reaching for a strafe key bound to CTRL, was mistaken for
+  letting go of forward. The key was rebound while it was still under your finger, and the
+  command it had been running was left with nothing able to stop it.
+
 ## 1.0.9
 
 - **Fixed: flying into water while holding forward kept you in flight mode.** Forward stayed

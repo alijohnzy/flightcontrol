@@ -319,18 +319,7 @@ local function StripModifiers(key)
 	return key:match("([^%-]+)$") or key
 end
 
-local function ModifierDown(fn)
-	return type(fn) == "function" and not not fn()
-end
-
 local function IsHeld(key)
-	local upper = key:upper()
-
-	if (upper:find("SHIFT-", 1, true) ~= nil) ~= ModifierDown(IsShiftKeyDown) then return false end
-	if (upper:find("CTRL-", 1, true) ~= nil) ~= ModifierDown(IsControlKeyDown) then return false end
-	if (upper:find("ALT-", 1, true) ~= nil) ~= ModifierDown(IsAltKeyDown) then return false end
-	if (upper:find("META-", 1, true) ~= nil) ~= ModifierDown(IsMetaKeyDown) then return false end
-
 	local ok, down = pcall(IsKeyDown, StripModifiers(key))
 	return ok and down
 end
